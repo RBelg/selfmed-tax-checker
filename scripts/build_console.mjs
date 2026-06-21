@@ -30,7 +30,7 @@ src = src.replace(
 );
 
 // プレースホルダ置換（DATA_URL は未使用になるが安全のため空に）
-src = src.replace("__DATA_URL__", "").replace("__SITE__", SITE.replace(/"/g, '\\"'));
+src = src.replace(/__DATA_URL__/g, "").replace(/__SITE__/g, SITE.replace(/"/g, '\\"'));
 
 const outDir = path.join(ROOT, "dist");
 fs.mkdirSync(outDir, { recursive: true });

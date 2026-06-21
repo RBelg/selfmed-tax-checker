@@ -413,8 +413,8 @@ async function buildBookmarkletHref() {
   if (!res.ok) throw new Error("bookmarklet.js の読み込みに失敗");
   let src = await res.text();
   src = src
-    .replace("__DATA_URL__", dataUrl.replace(/"/g, '\\"'))
-    .replace("__SITE__", siteUrl.replace(/"/g, '\\"'));
+    .replace(/__DATA_URL__/g, dataUrl.replace(/"/g, '\\"'))
+    .replace(/__SITE__/g, siteUrl.replace(/"/g, '\\"'));
   return "javascript:" + encodeURIComponent(src);
 }
 

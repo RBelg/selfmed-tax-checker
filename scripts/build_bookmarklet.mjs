@@ -24,7 +24,7 @@ src = src.replace(/^\s*\/\/.*$/gm, "");
 // 行頭の余白を詰め、空行を除去
 src = src.split("\n").map(l => l.trim()).filter(Boolean).join("\n");
 
-src = src.replace("__DATA_URL__", DATA_URL.replace(/"/g, '\\"')).replace("__SITE__", SITE.replace(/"/g, '\\"'));
+src = src.replace(/__DATA_URL__/g, DATA_URL.replace(/"/g, '\\"')).replace(/__SITE__/g, SITE.replace(/"/g, '\\"'));
 
 const href = "javascript:" + encodeURIComponent(src);
 const outPath = path.join(ROOT, "bookmarklet.min.txt");

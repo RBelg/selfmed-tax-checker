@@ -7,8 +7,8 @@
  *      （Amazonのclass名やDOM変更に強い。PC/スマホ/他サイトでも動く）
  *   3. ページ上にオーバーレイで判定結果を表示（合計購入額を入力 → 判定・節税額）
  *
- * このファイルが唯一の正本。index.html が実行時に fetch して
- *   __DATA_URL__ / __SITE__ を置換し javascript: リンクとして登録リンクを生成する。
+ * このファイルが唯一の正本。index.html が実行時に fetch し、下記2つの
+ *   プレースホルダ（データURL・サイトURL）を全件置換して javascript: 登録リンクを生成する。
  *   手動コピー用は scripts/build_bookmarklet.mjs で bookmarklet.min.txt を生成。
  */
 (function () {
