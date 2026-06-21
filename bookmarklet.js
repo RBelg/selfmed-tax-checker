@@ -69,8 +69,15 @@
     return found;
   }
 
-  // 注文を示す手がかり（注文日）の有無で「まだ注文がある／もう無い」を判定
-  var ORDER_HINT = /\d{4}年\s*\d{1,2}月\s*\d{1,2}日|注文日|ご注文/;
+  // 注文番号（Amazon: 250-1234567-1234567 形式）。ページ識別と「注文有無」の判定に使う
+  var ORDER_NUM = /\d{3}-\d{7}-\d{7}/g;
+  function pageSignature(text) {
+    var m = text.match(ORDER_NUM);
+    if (!m) return "";
+    // 重複除去してソート → そのページの注文集合を表す一意キー
+    var uniq = {}; m.forEach(function (x) { uniq[x] = 1; });
+    return Object.keys(uniq).sort().join(",");
+  }
 
   // 注文履歴の全ページを startIndex で巡回し、候補テキストを集約する
   function gatherAllPages(onProgress) {
@@ -78,12 +85,13 @@
     var CAP = 60;        // 安全上の最大ページ数
     var set = Object.create(null);
     var out = [];
-    // まず現在表示中のページを収集
+    // まず現在表示中のページを収集（fetchが失敗しても最低限ここは取れる）
     collectCandidates(document.body, set, out);
 
     var path = location.pathname;
     var baseParams = new URLSearchParams(location.search);
     var parser = new DOMParser();
+    var prevSig = null;
 
     function fetchPage(idx) {
       baseParams.set("startIndex", String(idx));
@@ -94,17 +102,20 @@
           if (!html) return false;
           var doc = parser.parseFromString(html, "text/html");
           var body = doc.body;
-          var txt = body ? (body.innerText || body.textContent || "") : "";
-          if (!ORDER_HINT.test(txt)) return false; // 注文が無い＝最終ページ超過
-          var before = out.length;
+          if (!body) return false;
+          var txt = body.innerText || body.textContent || "";
+          var sig = pageSignature(txt);
+          if (!sig) return false;                  // 注文番号なし＝注文が無い/最終ページ超過
+          if (sig === prevSig) return false;       // 前ページと同一＝これ以上進めない
+          prevSig = sig;
           collectCandidates(body, set, out);
-          return out.length > before; // 新規候補が増えたページのみ「続行」
+          return true;                             // 続行
         })
         .catch(function () { return false; });
     }
 
-    // startIndex=10,20,... と順に取得（現在ページの startIndex に依存せず0基準で網羅）
-    // ページネーションが効かず同一ページが返る場合は「新規ゼロ」で停止する
+    // startIndex=0,10,20,... と順に取得。停止はページ識別子（注文番号集合）で判定するので
+    // 現在ページと重複しても早期停止しない。
     function loop(idx) {
       if (idx >= CAP * PAGE) return Promise.resolve(out);
       if (onProgress) onProgress(idx / PAGE + 1);
@@ -113,7 +124,6 @@
         return loop(idx + PAGE);
       });
     }
-    // 0ページ目も取得（現在ページが途中startIndexの場合の取りこぼし防止）
     return loop(0);
   }
 
