@@ -115,7 +115,7 @@
               '<div id="verdict"></div>' +
               '<div id="tax"></div>') +
           '<div class="btns">' +
-            '<a class="btn site" id="site" href="' + esc(SITE) + '" target="_blank" rel="noopener">サイトで詳しく</a>' +
+            (SITE ? '<a class="btn site" id="site" href="' + esc(SITE) + '" target="_blank" rel="noopener">サイトで詳しく</a>' : '') +
             '<a class="btn kofi" href="https://buymeacoffee.com/r.bleg" target="_blank" rel="noopener">☕ 応援</a>' +
           '</div>' +
         '</div>' +
@@ -154,8 +154,11 @@
     checks.forEach(function (cb) { cb.onchange = update; });
     amt.oninput = update;
     // 「詳しく」リンクに検出品目を渡す（サイト側で価格入力＆詳細判定）
-    var items = hits.map(function (h) { return { name: h.med.n, price: "" }; });
-    root.getElementById("site").href = SITE + "#smtc=" + encodeURIComponent(JSON.stringify(items));
+    var siteLink = root.getElementById("site");
+    if (siteLink && SITE) {
+      var items = hits.map(function (h) { return { name: h.med.n, price: "" }; });
+      siteLink.href = SITE + "#smtc=" + encodeURIComponent(JSON.stringify(items));
+    }
     amt.focus();
     update();
   }
@@ -167,6 +170,8 @@
   }
 
   // --- データ取得して実行 ---
+  // /*__DATASOURCE_START__*/ から END までを build_console.mjs が埋め込みデータに差し替える。
+  /*__DATASOURCE_START__*/
   fetch(DATA_URL, { cache: "force-cache" })
     .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
     .then(function (data) {
@@ -177,4 +182,5 @@
     .catch(function (e) {
       toast("品目データの取得に失敗しました（" + e.message + "）。\nサイトが公開済みか、ネット接続をご確認ください。");
     });
+  /*__DATASOURCE_END__*/
 })();
