@@ -99,40 +99,85 @@
     return null;
   }
 
-  // 注文履歴の全ページを「次へ」リンクをたどって巡回し、候補テキストを集約する
+  function delay(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  // 注文履歴の全ページを巡回し、候補テキストを集約する。
+  // ページ送りのパラメータを「次へ」リンクから学習して startIndex を増やす方式を主とし、
+  // 学習できなければ「次へ」リンク追従にフォールバック。連続アクセス制限を避けるため待機を挟む。
   function gatherAllPages(onProgress) {
-    var CAP = 60;        // 安全上の最大ページ数
+    var CAP = 100;          // 安全上の最大ページ数
+    var STEP_DELAY = 600;   // 連続fetchの間隔(ms)：throttle回避
     var set = Object.create(null);
     var out = [];
     var parser = new DOMParser();
     var seenSig = Object.create(null);
 
-    // まず現在表示中のページを収集
+    // 安全用に現在表示ページを先に収集（fetchが全滅しても最低限取れる）
     collectCandidates(document.body, set, out);
-    var firstSig = pageSignature(document.body.innerText || document.body.textContent || "");
-    if (firstSig) seenSig[firstSig] = 1;
 
-    function step(doc, baseUrl, pageNo) {
-      if (pageNo > CAP) return Promise.resolve(out);
-      var nextUrl = findNextUrl(doc, baseUrl);
-      if (!nextUrl) return Promise.resolve(out);   // 次へが無い＝最終ページ
-      if (onProgress) onProgress(pageNo + 1);
-      return fetch(nextUrl, { credentials: "same-origin", cache: "no-store" })
+    var nu = findNextUrl(document, location.href);
+    if (!nu) return Promise.resolve(out);   // ページ送りが無い＝1ページのみ
+
+    // ページ送りパラメータ（数値）を学習
+    var tmpl = new URL(nu);
+    var param = null;
+    if (tmpl.searchParams.has("startIndex")) param = "startIndex";
+    else tmpl.searchParams.forEach(function (v, k) { if (!param && /^\d+$/.test(v) && +v >= 10) param = k; });
+
+    function scanHtml(html) {
+      if (!html) return null;
+      var d = parser.parseFromString(html, "text/html");
+      var body = d.body;
+      if (!body) return null;
+      var sig = pageSignature(body.innerText || body.textContent || "");
+      return { doc: d, body: body, sig: sig };
+    }
+
+    // 1ページ取得。空/失敗時は1度だけ長めに待ってリトライ（一時的throttle対策）
+    function fetchPage(url, retried) {
+      return fetch(url, { credentials: "same-origin", cache: "no-store" })
         .then(function (r) { return r.ok ? r.text() : ""; })
         .then(function (html) {
-          if (!html) return out;
-          var d = parser.parseFromString(html, "text/html");
-          var body = d.body;
-          if (!body) return out;
-          var sig = pageSignature(body.innerText || body.textContent || "");
-          if (sig && seenSig[sig]) return out;     // 既出ページ＝巡回ループ防止で停止
-          if (sig) seenSig[sig] = 1;
-          collectCandidates(body, set, out);
-          return step(d, nextUrl, pageNo + 1);
+          var p = scanHtml(html);
+          if ((!p || !p.sig) && !retried) return delay(1500).then(function () { return fetchPage(url, true); });
+          return p;
         })
-        .catch(function () { return out; });
+        .catch(function () { return retried ? null : delay(1500).then(function () { return fetchPage(url, true); }); });
     }
-    return step(document, location.href, 1);
+
+    if (param) {
+      // 主方式: startIndex を 0,step,2step... と増やして全ページ取得
+      var step = (+tmpl.searchParams.get(param)) || 10; // 「次へ」が指す値＝1ページ分
+      function loop(idx, pageNo) {
+        if (pageNo > CAP) return Promise.resolve(out);
+        if (onProgress) onProgress(pageNo);
+        tmpl.searchParams.set(param, String(idx));
+        return fetchPage(tmpl.href, false).then(function (p) {
+          if (!p || !p.sig) return out;            // 注文番号なし＝最終ページ超過
+          if (seenSig[p.sig]) return out;          // 既出＝これ以上進まない
+          seenSig[p.sig] = 1;
+          collectCandidates(p.body, set, out);
+          return delay(STEP_DELAY).then(function () { return loop(idx + step, pageNo + 1); });
+        });
+      }
+      return loop(0, 1);
+    }
+
+    // フォールバック: 「次へ」リンク追従
+    function follow(doc, baseUrl, pageNo) {
+      if (pageNo > CAP) return Promise.resolve(out);
+      var nextUrl = findNextUrl(doc, baseUrl);
+      if (!nextUrl) return Promise.resolve(out);
+      if (onProgress) onProgress(pageNo + 1);
+      return fetchPage(nextUrl, false).then(function (p) {
+        if (!p) return out;
+        if (p.sig && seenSig[p.sig]) return out;
+        if (p.sig) seenSig[p.sig] = 1;
+        collectCandidates(p.body, set, out);
+        return delay(STEP_DELAY).then(function () { return follow(p.doc, nextUrl, pageNo + 1); });
+      });
+    }
+    return follow(document, location.href, 1);
   }
 
   function run(MED) {
