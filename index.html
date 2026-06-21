@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>セルフメディケーション税制チェッカー｜Amazon購入のOTC医薬品で確定申告</title>
+<meta name="description" content="Amazonで買った市販薬（OTC医薬品）がセルフメディケーション税制の対象か自動判定。ブラウザ内で完結、データ送信なしの無料ツール。">
+<!-- Google AdSense（審査通過後に下記のpublisher IDを差し替え）
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXXX" crossorigin="anonymous"></script>
+-->
+<style>
+  :root {
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --ink: #1f2933;
+    --muted: #66727f;
+    --line: #e2e8f0;
+    --brand: #1f8a70;
+    --brand-d: #156b56;
+    --accent: #ffb703;
+    --ok: #1f8a70;
+    --ng: #b45309;
+    --radius: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,.08), 0 6px 20px rgba(0,0,0,.04);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+    line-height: 1.7; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 0 16px 64px; }
+  header.hero {
+    background: linear-gradient(135deg, var(--brand), var(--brand-d));
+    color: #fff; padding: 36px 16px 30px; text-align: center;
+  }
+  header.hero h1 { margin: 0 0 8px; font-size: 1.55rem; letter-spacing: .02em; }
+  header.hero p { margin: 0; opacity: .95; font-size: .98rem; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 20px; margin: 18px 0;
+  }
+  h2 { font-size: 1.15rem; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  h2 .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 50%; background: var(--brand); color: #fff;
+    font-size: .9rem; flex: none;
+  }
+  p.lead { color: var(--muted); margin-top: 0; }
+  .bm {
+    display: inline-block; background: var(--accent); color: #1f2933; font-weight: 700;
+    text-decoration: none; padding: 12px 20px; border-radius: 10px; border: 1px solid #e0a000;
+    cursor: grab; user-select: none;
+  }
+  .bm:active { cursor: grabbing; }
+  .hint { font-size: .85rem; color: var(--muted); }
+  ol.steps { margin: 8px 0 0; padding-left: 1.2em; }
+  ol.steps li { margin: 6px 0; }
+  textarea {
+    width: 100%; min-height: 120px; border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px; font-size: .95rem; font-family: inherit; resize: vertical;
+  }
+  button.btn {
+    background: var(--brand); color: #fff; border: 0; border-radius: 8px;
+    padding: 10px 18px; font-size: .98rem; font-weight: 700; cursor: pointer;
+  }
+  button.btn:hover { background: var(--brand-d); }
+  button.btn.sub { background: #e2e8f0; color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .82rem; }
+  td.price input { width: 96px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; text-align: right; }
+  td.num, th.num { text-align: right; }
+  .pill { display:inline-block; font-size:.72rem; padding:1px 7px; border-radius:999px; }
+  .pill.sw { background:#e6f6f1; color: var(--brand-d); }
+  .verdict { text-align: center; padding: 18px; border-radius: var(--radius); margin: 6px 0 14px; }
+  .verdict.yes { background: #e6f6f1; border: 1px solid #bfe6da; }
+  .verdict.no  { background: #fff6e6; border: 1px solid #ffe0a3; }
+  .verdict .big { font-size: 1.45rem; font-weight: 800; }
+  .verdict.yes .big { color: var(--ok); }
+  .verdict.no  .big { color: var(--ng); }
+  .total-line { font-size: 1.05rem; }
+  .total-line strong { font-size: 1.3rem; }
+  .muted { color: var(--muted); }
+  .small { font-size: .85rem; }
+  .adslot {
+    border: 1px dashed var(--line); border-radius: var(--radius); padding: 22px; text-align: center;
+    color: var(--muted); background: #fafbfc; font-size: .85rem;
+  }
+  .kofi { text-align: center; margin: 8px 0; }
+  .kofi a {
+    display: inline-block; background: #ff5e5b; color: #fff; text-decoration: none;
+    padding: 10px 22px; border-radius: 10px; font-weight: 700;
+  }
+  footer { text-align: center; color: var(--muted); font-size: .82rem; padding: 24px 0; }
+  footer a { color: var(--muted); }
+  .empty { color: var(--muted); text-align: center; padding: 16px; }
+  details summary { cursor: pointer; font-weight: 600; }
+  .notice { font-size: .82rem; color: var(--muted); background:#f1f5f9; border-radius:8px; padding:8px 12px; }
+</style>
+</head>
+<body>
+<header class="hero">
+  <h1>セルフメディケーション税制チェッカー</h1>
+  <p>Amazonで買った市販薬が確定申告の対象か、ブラウザ内で自動判定（データ送信なし・無料）</p>
+</header>
+
+<div class="wrap">
+
+  <div class="card">
+    <h2><span class="num">1</span>ブックマークレットを登録</h2>
+    <p class="lead">下のボタンをブラウザのブックマークバーへ<strong>ドラッグ＆ドロップ</strong>して登録します。</p>
+    <p><a class="bm" id="bookmarklet" href="#">📋 OTC医薬品を抽出</a></p>
+    <p class="hint">※ クリックではなく、ドラッグして登録してください。スマホの場合は手順3の「手動で貼り付け」をご利用ください。</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="num">2</span>Amazonの注文履歴で実行</h2>
+    <ol class="steps">
+      <li>Amazonの「<a href="https://www.amazon.co.jp/gp/css/order-history" target="_blank" rel="noopener">注文履歴</a>」を開く（対象期間を選ぶ）</li>
+      <li>登録したブックマークレットをクリック</li>
+      <li>商品名が抽出され、自動でこのページに戻り判定結果が表示されます</li>
+    </ol>
+    <p class="notice">抽出した商品名はあなたのブラウザ内（localStorage）にのみ保存され、外部サーバーには一切送信されません。</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="num">3</span>判定結果</h2>
+    <div id="status" class="empty">データを読み込み中…</div>
+
+    <div id="result" style="display:none;">
+      <div id="verdict" class="verdict"></div>
+      <div id="taxTableWrap"></div>
+      <h3 style="margin:18px 0 6px; font-size:1rem;">対象と判定された商品（金額は調整できます）</h3>
+      <div style="overflow-x:auto;">
+        <table id="matchTable">
+          <thead><tr>
+            <th>商品名（Amazon）</th><th>対象品目（販売名）</th><th>成分</th><th class="num">金額(円)</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="small muted" id="unmatchedNote"></p>
+    </div>
+
+    <details style="margin-top:14px;">
+      <summary>手動で商品名を貼り付ける（スマホ・うまく動かない場合）</summary>
+      <p class="small muted" style="margin:8px 0;">1行に1商品、商品名を貼り付けて判定ボタンを押してください。</p>
+      <textarea id="manualInput" placeholder="例：&#10;【第2類医薬品】ロキソニンSテープ 7枚&#10;アレグラFX 28錠"></textarea>
+      <p><button class="btn" id="manualBtn">この内容で判定する</button>
+         <button class="btn sub" id="clearBtn">クリア</button></p>
+    </details>
+  </div>
+
+  <div class="adslot" aria-label="広告枠">広告枠（AdSense審査通過後に表示）</div>
+
+  <div class="card">
+    <div class="kofi">
+      <p class="small muted" style="margin:0 0 8px;">このツールが役に立ったら、応援していただけると励みになります☕</p>
+      <a id="kofi" href="https://buymeacoffee.com/r.bleg" target="_blank" rel="noopener">☕ 開発者を応援する</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>セルフメディケーション税制とは？（判定の仕組み）</summary>
+      <div class="small" style="margin-top:10px;">
+        <p>対象のOTC医薬品の年間購入額が<strong>12,000円</strong>を超えると、超えた分（上限<strong>88,000円</strong>）を所得から控除できる制度です。会社員でも確定申告で還付を受けられます。</p>
+        <ul>
+          <li>節税額の目安 ＝ 控除額 ×（所得税率 ＋ 住民税率10%）</li>
+          <li>控除額 ＝ （対象薬の合計購入額 − 12,000円）、上限88,000円</li>
+          <li>通常の「医療費控除（年間10万円超）」とは<strong>どちらか一方のみ</strong>選択適用です。医療費が10万円を超える年は、そちらも比較してください。</li>
+        </ul>
+        <p class="muted">本ツールの判定・金額はあくまで目安です。実際の申告は最新の制度・領収書に基づき、必要に応じて税務署・税理士にご確認ください。対象品目データの出典は厚生労働省「セルフメディケーション税制対象品目一覧」です。</p>
+      </div>
+    </details>
+  </div>
+
+</div>
+
+<footer>
+  <p>データ出典：厚生労働省「<a href="https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/0000124853.html" target="_blank" rel="noopener">セルフメディケーション税制対象品目一覧</a>」<br>
+  本サイトは情報提供を目的とした非公式ツールです。すべての処理はお使いのブラウザ内で完結します。</p>
+</footer>
+
+<script>
+// ===== 設定 =====
+const STORAGE_KEY = "smtc_items";      // bookmarklet が書き込むキー
+const SITE_DATA = "data/medicines.json";
+const THRESHOLD = 12000;               // 控除の下限
+const DEDUCT_CAP = 88000;              // 控除額の上限
+const RESIDENT_TAX = 0.10;             // 住民税率（一律10%）
+const INCOME_TAX_RATES = [0.05, 0.10, 0.20, 0.23, 0.33]; // 所得税率の代表例
+const MIN_MATCH_LEN = 4;               // 部分一致に用いる販売名の最小正規化長（誤検知抑制）
+
+// ===== 正規化（build_medicines.py の normalize_name と同一ルール） =====
+const BRACKET_RE = /[【〔\[(（][^】〕\])）]*[】〕\])）]/g;
+const STRIP_RE = /[\s　・,，.。/／\\\-－—–~〜=＝!！?？"'’＇`*＊#＃&＆+＋:：;；]/g;
+function normalize(name) {
+  if (!name) return "";
+  let s = String(name).normalize("NFKC");
+  s = s.replace(BRACKET_RE, "");
+  s = s.toLowerCase();
+  s = s.replace(STRIP_RE, "");
+  return s;
+}
+
+// ===== データ =====
+let MED_INDEX = null; // [{name, name_norm, ingredient, maker}]
+async function loadData() {
+  const res = await fetch(SITE_DATA, { cache: "no-cache" });
+  if (!res.ok) throw new Error("medicines.json の読み込みに失敗しました");
+  const data = await res.json();
+  MED_INDEX = data.items;
+  return data;
+}
+
+// 商品名(Amazon) -> 対象品目を1件返す（最長一致を優先）。なければ null
+function matchProduct(rawName) {
+  const norm = normalize(rawName);
+  if (!norm) return null;
+  let best = null;
+  for (const med of MED_INDEX) {
+    const mn = med.name_norm;
+    if (mn.length < MIN_MATCH_LEN) {
+      if (mn === norm && (!best || mn.length > best.name_norm.length)) best = med;
+      continue;
+    }
+    if (norm.includes(mn)) {
+      if (!best || mn.length > best.name_norm.length) best = med;
+    }
+  }
+  return best;
+}
+
+// ===== 入力取得 =====
+// bookmarklet は [{name, price}] を localStorage / URLハッシュ(#smtc=...) に格納
+function readIncoming() {
+  // URLハッシュ優先（別ブラウザ間でも渡せるフォールバック）
+  const hash = location.hash;
+  if (hash && hash.startsWith("#smtc=")) {
+    try {
+      const json = decodeURIComponent(hash.slice("#smtc=".length));
+      const arr = JSON.parse(json);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
+      history.replaceState(null, "", location.pathname + location.search);
+      return arr;
+    } catch (e) { /* fallthrough */ }
+  }
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (stored) {
+    try { return JSON.parse(stored); } catch (e) { return null; }
+  }
+  return null;
+}
+
+// ===== 計算 =====
+function calcDeduction(total) {
+  return Math.max(0, Math.min(total - THRESHOLD, DEDUCT_CAP));
+}
+function yen(n) { return "¥" + Math.round(n).toLocaleString("ja-JP"); }
+
+// ===== 表示 =====
+let currentRows = []; // {raw, med, price}
+
+function render() {
+  const tbody = document.querySelector("#matchTable tbody");
+  tbody.innerHTML = "";
+  let total = 0;
+  currentRows.forEach((row, i) => {
+    total += Number(row.price) || 0;
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td>${escapeHtml(row.raw)}</td>` +
+      `<td>${escapeHtml(row.med.name)} <span class="pill sw">対象</span></td>` +
+      `<td class="muted small">${escapeHtml(row.med.ingredient || "")}</td>` +
+      `<td class="price num"><input type="number" min="0" step="1" value="${row.price ?? ""}" data-i="${i}"></td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll("input").forEach(inp => {
+    inp.addEventListener("input", e => {
+      currentRows[+e.target.dataset.i].price = e.target.value;
+      renderVerdict();
+    });
+  });
+  renderVerdict();
+}
+
+function renderVerdict() {
+  const total = currentRows.reduce((s, r) => s + (Number(r.price) || 0), 0);
+  const deduction = calcDeduction(total);
+  const v = document.getElementById("verdict");
+  const worth = total > THRESHOLD;
+  v.className = "verdict " + (worth ? "yes" : "no");
+  v.innerHTML = worth
+    ? `<div class="big">✅ 申告する価値あり</div>
+       <div class="total-line">対象薬の合計：<strong>${yen(total)}</strong>（控除額 ${yen(deduction)}）</div>`
+    : `<div class="big">あと ${yen(THRESHOLD + 1 - total)} で対象ライン</div>
+       <div class="total-line">対象薬の合計：<strong>${yen(total)}</strong>　/　12,000円超で申告対象</div>`;
+
+  // 税率別の節税額テーブル
+  const wrap = document.getElementById("taxTableWrap");
+  if (worth && deduction > 0) {
+    let rows = INCOME_TAX_RATES.map(rate => {
+      const saving = deduction * (rate + RESIDENT_TAX);
+      return `<tr><td>所得税率 ${(rate*100)}%</td><td class="num muted small">住民税10%込み ${((rate+RESIDENT_TAX)*100).toFixed(0)}%</td><td class="num"><strong>${yen(saving)}</strong></td></tr>`;
+    }).join("");
+    wrap.innerHTML =
+      `<p class="small muted" style="margin:4px 0;">あなたの所得税率に応じた節税額の目安：</p>
+       <table><thead><tr><th>区分</th><th class="num">合計税率</th><th class="num">節税額の目安</th></tr></thead><tbody>${rows}</tbody></table>
+       <p class="small muted">※ 通常の医療費控除（年間10万円超）と選択適用です。医療費が多い年はそちらも比較してください。</p>`;
+  } else {
+    wrap.innerHTML = "";
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c]));
+}
+
+function showResultFromItems(items) {
+  const statusEl = document.getElementById("status");
+  const matched = [];
+  let unmatched = 0;
+  for (const it of items) {
+    const name = typeof it === "string" ? it : it.name;
+    const price = typeof it === "string" ? "" : (it.price ?? "");
+    const med = matchProduct(name);
+    if (med) matched.push({ raw: name, med, price });
+    else unmatched++;
+  }
+  currentRows = matched;
+  if (matched.length === 0) {
+    statusEl.style.display = "block";
+    statusEl.className = "empty";
+    statusEl.innerHTML = `対象のOTC医薬品は見つかりませんでした。<br><span class="small">（${items.length}件を確認）対象品目は市販薬の一部のみです。</span>`;
+    document.getElementById("result").style.display = "none";
+    return;
+  }
+  statusEl.style.display = "none";
+  document.getElementById("result").style.display = "block";
+  document.getElementById("unmatchedNote").textContent =
+    unmatched > 0 ? `※ ${unmatched}件は対象品目に該当しませんでした（対象外の商品など）。` : "";
+  render();
+}
+
+// ===== bookmarklet 文字列生成 =====
+// 正本 bookmarklet.js を読み込み、サイトURL/キーを差し込んで javascript: リンク化する。
+async function buildBookmarkletHref() {
+  const siteUrl = location.origin + location.pathname;
+  const res = await fetch("bookmarklet.js", { cache: "no-cache" });
+  if (!res.ok) throw new Error("bookmarklet.js の読み込みに失敗");
+  let src = await res.text();
+  src = src
+    .replace("__SITE__", siteUrl.replace(/"/g, '\\"'))
+    .replace("__KEY__", STORAGE_KEY);
+  return "javascript:" + encodeURIComponent(src);
+}
+
+// ===== 初期化 =====
+(async function init() {
+  const bmEl = document.getElementById("bookmarklet");
+  try {
+    bmEl.setAttribute("href", await buildBookmarkletHref());
+  } catch (e) {
+    bmEl.setAttribute("href", "#");
+    bmEl.textContent = "📋 抽出ツール（読み込み失敗）";
+  }
+  bmEl.addEventListener("click", e => {
+    e.preventDefault();
+    alert("このボタンはクリックではなく、ブックマークバーへドラッグ＆ドロップして登録してください。");
+  });
+
+  document.getElementById("manualBtn").addEventListener("click", () => {
+    const lines = document.getElementById("manualInput").value
+      .split("\n").map(s => s.trim()).filter(Boolean);
+    if (lines.length === 0) { alert("商品名を入力してください。"); return; }
+    showResultFromItems(lines.map(name => ({ name, price: "" })));
+  });
+  document.getElementById("clearBtn").addEventListener("click", () => {
+    localStorage.removeItem(STORAGE_KEY);
+    document.getElementById("manualInput").value = "";
+    location.hash = "";
+    location.reload();
+  });
+
+  try {
+    await loadData();
+  } catch (e) {
+    document.getElementById("status").innerHTML =
+      `<span style="color:var(--ng)">データの読み込みに失敗しました。${escapeHtml(e.message)}</span>`;
+    return;
+  }
+
+  const incoming = readIncoming();
+  if (incoming && incoming.length) {
+    showResultFromItems(incoming);
+  } else {
+    const s = document.getElementById("status");
+    s.className = "empty";
+    s.innerHTML = `まだデータがありません。上の手順1〜2を実行するか、下の「手動で商品名を貼り付ける」をお使いください。`;
+  }
+})();
+</script>
+</body>
+</html>
