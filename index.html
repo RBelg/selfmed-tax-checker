@@ -406,16 +406,15 @@ function showResultFromItems(items) {
 // ===== bookmarklet 文字列生成 =====
 // 正本 bookmarklet.js を読み込み、サイトURL/キーを差し込んで javascript: リンク化する。
 async function buildBookmarkletHref() {
+  // ローダー方式: 登録するのは「サイトの app.js を読み込むだけ」の小さなコード。
+  // 中身(app.js)を更新すれば、ユーザーは再登録なしで常に最新版が動く。
   const base = location.href.replace(/[^/]*$/, "");   // index.html を除いたディレクトリURL
-  const siteUrl = location.origin + location.pathname;
-  const dataUrl = base + "data/medicines.json";
-  const res = await fetch("bookmarklet.js", { cache: "no-cache" });
-  if (!res.ok) throw new Error("bookmarklet.js の読み込みに失敗");
-  let src = await res.text();
-  src = src
-    .replace(/__DATA_URL__/g, dataUrl.replace(/"/g, '\\"'))
-    .replace(/__SITE__/g, siteUrl.replace(/"/g, '\\"'));
-  return "javascript:" + encodeURIComponent(src);
+  const appUrl = base + "app.js";
+  const code =
+    "(function(){var s=document.createElement('script');" +
+    "s.src=" + JSON.stringify(appUrl) + "+'?t='+Date.now();" +
+    "(document.head||document.documentElement).appendChild(s);})();";
+  return "javascript:" + encodeURIComponent(code);
 }
 
 // ===== 初期化 =====

@@ -13,8 +13,8 @@
  */
 (function () {
   "use strict";
-  var DATA_URL = "__DATA_URL__"; // 例: https://your-site/data/medicines.json
-  var SITE = "__SITE__";         // 自サイトURL（「詳しく見る」用）
+  var DATA_URL = "https://rbelg.github.io/selfmed-tax-checker/data/medicines.json"; // 例: https://your-site/data/medicines.json
+  var SITE = "https://rbelg.github.io/selfmed-tax-checker/";         // 自サイトURL（「詳しく見る」用）
   var MIN_MATCH_LEN = 4;         // 部分一致に使う販売名の最小正規化長（誤検知抑制）
   var THRESHOLD = 12000, DEDUCT_CAP = 88000, RESIDENT = 0.10;
   var RATES = [0.05, 0.10, 0.20, 0.23, 0.33];
