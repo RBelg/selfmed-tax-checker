@@ -79,52 +79,60 @@
     return Object.keys(uniq).sort().join(",");
   }
 
-  // 注文履歴の全ページを startIndex で巡回し、候補テキストを集約する
+  // ドキュメントから「次へ」ページのURLを見つける（Amazon自身のページ送りを使う＝param推測不要）
+  function findNextUrl(doc, baseUrl) {
+    // 1) Amazonのページネーション（次へ）。最終ページは li.a-last が a-disabled になり <a> が無い
+    var el = doc.querySelector(
+      "ul.a-pagination li.a-last:not(.a-disabled) a[href], .a-pagination .a-last a[href]"
+    );
+    if (el && el.getAttribute("href")) {
+      try { return new URL(el.getAttribute("href"), baseUrl).href; } catch (e) {}
+    }
+    // 2) フォールバック: テキストが「次へ」のリンク
+    var as = doc.querySelectorAll("a[href]");
+    for (var i = 0; i < as.length; i++) {
+      var t = (as[i].textContent || "").replace(/\s+/g, "");
+      if (/次へ/.test(t)) {
+        try { return new URL(as[i].getAttribute("href"), baseUrl).href; } catch (e) {}
+      }
+    }
+    return null;
+  }
+
+  // 注文履歴の全ページを「次へ」リンクをたどって巡回し、候補テキストを集約する
   function gatherAllPages(onProgress) {
-    var PAGE = 10;       // 1ページ当たりの注文数（Amazonの既定）
     var CAP = 60;        // 安全上の最大ページ数
     var set = Object.create(null);
     var out = [];
-    // まず現在表示中のページを収集（fetchが失敗しても最低限ここは取れる）
-    collectCandidates(document.body, set, out);
-
-    var path = location.pathname;
-    var baseParams = new URLSearchParams(location.search);
     var parser = new DOMParser();
-    var prevSig = null;
+    var seenSig = Object.create(null);
 
-    function fetchPage(idx) {
-      baseParams.set("startIndex", String(idx));
-      var url = location.origin + path + "?" + baseParams.toString();
-      return fetch(url, { credentials: "same-origin", cache: "no-store" })
+    // まず現在表示中のページを収集
+    collectCandidates(document.body, set, out);
+    var firstSig = pageSignature(document.body.innerText || document.body.textContent || "");
+    if (firstSig) seenSig[firstSig] = 1;
+
+    function step(doc, baseUrl, pageNo) {
+      if (pageNo > CAP) return Promise.resolve(out);
+      var nextUrl = findNextUrl(doc, baseUrl);
+      if (!nextUrl) return Promise.resolve(out);   // 次へが無い＝最終ページ
+      if (onProgress) onProgress(pageNo + 1);
+      return fetch(nextUrl, { credentials: "same-origin", cache: "no-store" })
         .then(function (r) { return r.ok ? r.text() : ""; })
         .then(function (html) {
-          if (!html) return false;
-          var doc = parser.parseFromString(html, "text/html");
-          var body = doc.body;
-          if (!body) return false;
-          var txt = body.innerText || body.textContent || "";
-          var sig = pageSignature(txt);
-          if (!sig) return false;                  // 注文番号なし＝注文が無い/最終ページ超過
-          if (sig === prevSig) return false;       // 前ページと同一＝これ以上進めない
-          prevSig = sig;
+          if (!html) return out;
+          var d = parser.parseFromString(html, "text/html");
+          var body = d.body;
+          if (!body) return out;
+          var sig = pageSignature(body.innerText || body.textContent || "");
+          if (sig && seenSig[sig]) return out;     // 既出ページ＝巡回ループ防止で停止
+          if (sig) seenSig[sig] = 1;
           collectCandidates(body, set, out);
-          return true;                             // 続行
+          return step(d, nextUrl, pageNo + 1);
         })
-        .catch(function () { return false; });
+        .catch(function () { return out; });
     }
-
-    // startIndex=0,10,20,... と順に取得。停止はページ識別子（注文番号集合）で判定するので
-    // 現在ページと重複しても早期停止しない。
-    function loop(idx) {
-      if (idx >= CAP * PAGE) return Promise.resolve(out);
-      if (onProgress) onProgress(idx / PAGE + 1);
-      return fetchPage(idx).then(function (more) {
-        if (!more) return out;
-        return loop(idx + PAGE);
-      });
-    }
-    return loop(0);
+    return step(document, location.href, 1);
   }
 
   function run(MED) {
