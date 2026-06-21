@@ -1,70 +1,180 @@
 /*
- * セルフメディケーション税制チェッカー — 抽出ブックマークレット（正本）
+ * セルフメディケーション税制チェッカー — オールインワン・ブックマークレット（正本）
  *
- * 役割:
- *   Amazonの注文履歴ページのDOMから「商品名」を抽出し、
- *   localStorage と URLハッシュ に格納して自サイトへ遷移する。
- *   ※ medicines.json の取得・照合はここでは行わない（AmazonのCSP回避のため）。
+ * 役割（Amazon注文履歴ページ上で全部完結する）:
+ *   1. 自サイトから medicines.json を取得（Amazonの強制CSPは script/connect を制限しないため fetch 可）
+ *   2. ページ全体のテキストを走査し、対象品目リストと「構造に依存せず」照合
+ *      （Amazonのclass名やDOM変更に強い。PC/スマホ/他サイトでも動く）
+ *   3. ページ上にオーバーレイで判定結果を表示（合計購入額を入力 → 判定・節税額）
  *
  * このファイルが唯一の正本。index.html が実行時に fetch して
- *   __SITE__ / __KEY__ を置換し javascript: リンクとして登録リンクを生成する。
- *   bookmarklet.min.txt（手動コピー用）は scripts/build_bookmarklet.mjs で生成。
- *
- * 注意（要実機確認）:
- *   AmazonのDOM構造は変わりやすい。下記セレクタ・除外語は実ページで要検証。
- *   PC版/スマホ版/年フィルタで構造差あり。うまく取れない場合はサイトの手動貼り付けへ。
+ *   __DATA_URL__ / __SITE__ を置換し javascript: リンクとして登録リンクを生成する。
+ *   手動コピー用は scripts/build_bookmarklet.mjs で bookmarklet.min.txt を生成。
  */
 (function () {
   "use strict";
-  var SITE = "__SITE__";
-  var KEY = "__KEY__";
+  var DATA_URL = "__DATA_URL__"; // 例: https://your-site/data/medicines.json
+  var SITE = "__SITE__";         // 自サイトURL（「詳しく見る」用）
+  var MIN_MATCH_LEN = 4;         // 部分一致に使う販売名の最小正規化長（誤検知抑制）
+  var THRESHOLD = 12000, DEDUCT_CAP = 88000, RESIDENT = 0.10;
+  var RATES = [0.05, 0.10, 0.20, 0.23, 0.33];
 
-  // 商品名の候補となるリンク。Amazon注文履歴では商品タイトルがリンクとして並ぶ。
-  var SELECTORS = [
-    ".yohtmlc-product-title",                 // 新しめの注文履歴の商品タイトル
-    "a.a-link-normal.yohtmlc-product-title",
-    ".a-fixed-left-grid .a-link-normal",      // 旧レイアウトの商品リンク
-    ".item-view-left-col-inner a.a-link-normal",
-    "a.a-link-normal[href*='/product/']",
-    "a.a-link-normal[href*='/dp/']",
-    "a.a-link-normal[href*='/gp/product/']",
-  ];
-
-  // 商品名ではない（ボタン・補助リンク）テキストを除外
-  var EXCLUDE = /(再び購入|もう一度購入|商品の詳細|レビュー|注文内容を表示|注文の詳細|配送状況|追跡|領収書|返品|交換|問題|ギフト|サポート|キャンセル|出品者|ストアフロント|詳細を見る|定期おトク便)/;
-
-  function looksLikeProduct(t) {
-    if (!t) return false;
-    t = t.trim();
-    if (t.length < 6 || t.length > 180) return false;   // 極端に短い/長いものを除外
-    if (EXCLUDE.test(t)) return false;
-    if (/^\d+$/.test(t)) return false;
-    return true;
+  // 二重起動防止
+  if (document.getElementById("smtc-overlay-host")) {
+    document.getElementById("smtc-overlay-host").remove();
   }
 
-  var seen = Object.create(null);
-  var items = [];
-  SELECTORS.forEach(function (sel) {
-    document.querySelectorAll(sel).forEach(function (el) {
-      var t = (el.textContent || "").replace(/\s+/g, " ").trim();
-      if (looksLikeProduct(t) && !seen[t]) {
-        seen[t] = 1;
-        items.push({ name: t, price: "" });
+  // --- 正規化（build_medicines.py / index.html と同一ルール） ---
+  var BR = /[【〔\[(（][^】〕\])）]*[】〕\])）]/g;
+  var SY = /[\s　・,，.。/／\\\-－—–~〜=＝!！?？"'’＇`*＊#＃&＆+＋:：;；]/g;
+  function norm(s) {
+    if (!s) return "";
+    return String(s).normalize("NFKC").replace(BR, "").toLowerCase().replace(SY, "");
+  }
+
+  function toast(msg) { alert(msg); }
+
+  // --- ページから商品名候補テキストを収集（構造非依存） ---
+  function collectCandidates() {
+    var set = Object.create(null);
+    var out = [];
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+    var n;
+    while ((n = walker.nextNode())) {
+      var t = (n.nodeValue || "").replace(/\s+/g, " ").trim();
+      if (t.length >= 6 && t.length <= 200 && !/^[\d¥,，.\s]+$/.test(t) && !set[t]) {
+        set[t] = 1;
+        out.push(t);
       }
-    });
-  });
-
-  if (items.length === 0) {
-    alert(
-      "商品名を抽出できませんでした。\n" +
-      "Amazonの『注文履歴』ページで実行してください。\n" +
-      "うまくいかない場合はサイトの『手動で貼り付ける』をご利用ください。"
-    );
-    return;
+    }
+    return out;
   }
 
-  var payload = JSON.stringify(items);
-  try { localStorage.setItem(KEY, payload); } catch (e) { /* プライベートモード等 */ }
-  // URLハッシュでも渡す（別ブラウザ/別プロファイルへのフォールバック）
-  location.href = SITE + "#smtc=" + encodeURIComponent(payload);
+  function run(MED) {
+    var candidates = collectCandidates();
+    // 候補テキスト -> 対象品目（最長一致）。重複品目は1件に集約。
+    var found = {};
+    candidates.forEach(function (text) {
+      var nt = norm(text);
+      if (!nt) return;
+      var best = null;
+      for (var i = 0; i < MED.length; i++) {
+        var k = MED[i].k;
+        if (k.length < MIN_MATCH_LEN) { if (k === nt) { if (!best || k.length > best.k.length) best = MED[i]; } continue; }
+        if (nt.indexOf(k) !== -1) { if (!best || k.length > best.k.length) best = MED[i]; }
+      }
+      if (best && !found[best.k]) found[best.k] = { med: best, raw: text };
+    });
+    var hits = Object.keys(found).map(function (k) { return found[k]; });
+    renderOverlay(hits);
+  }
+
+  function yen(x) { return "¥" + Math.round(x).toLocaleString("ja-JP"); }
+
+  function renderOverlay(hits) {
+    var host = document.createElement("div");
+    host.id = "smtc-overlay-host";
+    host.style.cssText = "position:fixed;top:16px;right:16px;z-index:2147483647;";
+    var root = host.attachShadow({ mode: "open" });
+
+    var rows = hits.map(function (h, i) {
+      return '<label class="row"><input type="checkbox" checked data-i="' + i + '">' +
+        '<span class="nm">' + esc(h.med.n) + '</span>' +
+        '<span class="ig">' + esc(h.med.g || "") + '</span></label>';
+    }).join("");
+
+    root.innerHTML =
+      '<style>' +
+      ':host{all:initial}' +
+      '.panel{font-family:-apple-system,"Segoe UI","Yu Gothic",Meiryo,sans-serif;width:340px;max-height:84vh;overflow:auto;' +
+      'background:#fff;color:#1f2933;border:1px solid #d8e0e8;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.18);font-size:13px;line-height:1.6}' +
+      '.hd{background:linear-gradient(135deg,#1f8a70,#156b56);color:#fff;padding:10px 14px;border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center}' +
+      '.hd b{font-size:14px}.x{cursor:pointer;font-size:18px;line-height:1;opacity:.9}' +
+      '.bd{padding:12px 14px}' +
+      '.verdict{border-radius:10px;padding:10px;text-align:center;margin-bottom:10px}' +
+      '.yes{background:#e6f6f1;border:1px solid #bfe6da}.no{background:#fff6e6;border:1px solid #ffe0a3}' +
+      '.big{font-size:16px;font-weight:800}.yes .big{color:#1f8a70}.no .big{color:#b45309}' +
+      '.amt{width:130px;padding:6px 8px;border:1px solid #cfd8e0;border-radius:6px;text-align:right;font-size:14px}' +
+      '.row{display:flex;gap:6px;align-items:flex-start;padding:5px 0;border-bottom:1px solid #eef2f5}' +
+      '.nm{flex:1;font-weight:600}.ig{color:#66727f;font-size:11px}' +
+      '.muted{color:#66727f}.small{font-size:11px}' +
+      'table{width:100%;border-collapse:collapse;margin-top:6px}td{padding:3px 0;border-bottom:1px solid #eef2f5}.r{text-align:right}' +
+      '.btns{display:flex;gap:8px;margin-top:10px}' +
+      '.btn{flex:1;text-align:center;text-decoration:none;padding:8px;border-radius:8px;font-weight:700;cursor:pointer;border:0;font-size:12px}' +
+      '.kofi{background:#ff5e5b;color:#fff}.site{background:#1f8a70;color:#fff}' +
+      '.empty{padding:8px 0;color:#66727f}' +
+      '</style>' +
+      '<div class="panel">' +
+        '<div class="hd"><b>セルフメディケーション判定</b><span class="x" id="x">×</span></div>' +
+        '<div class="bd">' +
+          (hits.length === 0
+            ? '<div class="empty">このページで対象のOTC医薬品は見つかりませんでした。<br>注文履歴の対象期間を表示して再実行してください。</div>'
+            : '<div class="muted small">対象薬を <b>' + hits.length + '件</b> 検出。下のチェックを外すと除外できます。</div>' +
+              '<div id="list">' + rows + '</div>' +
+              '<div style="margin:10px 0 4px">対象薬の合計購入額：<input class="amt" id="amt" type="number" min="0" step="1" placeholder="例 15000"> 円</div>' +
+              '<div id="verdict"></div>' +
+              '<div id="tax"></div>') +
+          '<div class="btns">' +
+            '<a class="btn site" id="site" href="' + esc(SITE) + '" target="_blank" rel="noopener">サイトで詳しく</a>' +
+            '<a class="btn kofi" href="https://buymeacoffee.com/r.bleg" target="_blank" rel="noopener">☕ 応援</a>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    document.body.appendChild(host);
+    root.getElementById("x").onclick = function () { host.remove(); };
+
+    if (hits.length === 0) return;
+
+    var checks = root.querySelectorAll('input[type=checkbox]');
+    var amt = root.getElementById("amt");
+    function selectedCount() {
+      var c = 0; checks.forEach(function (cb) { if (cb.checked) c++; }); return c;
+    }
+    function update() {
+      var total = Number(amt.value) || 0;
+      var ded = Math.max(0, Math.min(total - THRESHOLD, DEDUCT_CAP));
+      var worth = total > THRESHOLD;
+      var v = root.getElementById("verdict");
+      v.className = "verdict " + (worth ? "yes" : "no");
+      v.innerHTML = worth
+        ? '<div class="big">✅ 申告する価値あり</div><div class="small">控除額 ' + yen(ded) + '</div>'
+        : (total > 0
+            ? '<div class="big">あと ' + yen(THRESHOLD + 1 - total) + '</div><div class="small">12,000円超で対象</div>'
+            : '<div class="small muted">合計購入額を入力してください</div>');
+      var tx = root.getElementById("tax");
+      if (worth && ded > 0) {
+        tx.innerHTML = '<table><tr><td class="muted small">所得税率</td><td class="r muted small">節税額の目安</td></tr>' +
+          RATES.map(function (rt) {
+            return '<tr><td>' + (rt * 100) + '%</td><td class="r"><b>' + yen(ded * (rt + RESIDENT)) + '</b></td></tr>';
+          }).join("") +
+          '</table><div class="small muted" style="margin-top:4px">※住民税10%込み。通常の医療費控除(10万円超)とは選択適用。</div>';
+      } else { tx.innerHTML = ""; }
+    }
+    checks.forEach(function (cb) { cb.onchange = update; });
+    amt.oninput = update;
+    // 「詳しく」リンクに検出品目を渡す（サイト側で価格入力＆詳細判定）
+    var items = hits.map(function (h) { return { name: h.med.n, price: "" }; });
+    root.getElementById("site").href = SITE + "#smtc=" + encodeURIComponent(JSON.stringify(items));
+    amt.focus();
+    update();
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  // --- データ取得して実行 ---
+  fetch(DATA_URL, { cache: "force-cache" })
+    .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(function (data) {
+      // medicines.json は {items:[{name,name_norm,ingredient,...}]}。軽量化のため n/k/g に詰め替え。
+      var MED = data.items.map(function (it) { return { n: it.name, k: it.name_norm, g: it.ingredient }; });
+      run(MED);
+    })
+    .catch(function (e) {
+      toast("品目データの取得に失敗しました（" + e.message + "）。\nサイトが公開済みか、ネット接続をご確認ください。");
+    });
 })();

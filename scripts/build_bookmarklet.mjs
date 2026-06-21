@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SITE = process.argv[2] || "https://YOUR-SITE-URL/";
-const KEY = "smtc_items";
+const DATA_URL = SITE.replace(/\/?$/, "/") + "data/medicines.json";
 
 let src = fs.readFileSync(path.join(ROOT, "bookmarklet.js"), "utf-8");
 
@@ -24,7 +24,7 @@ src = src.replace(/^\s*\/\/.*$/gm, "");
 // 行頭の余白を詰め、空行を除去
 src = src.split("\n").map(l => l.trim()).filter(Boolean).join("\n");
 
-src = src.replace("__SITE__", SITE.replace(/"/g, '\\"')).replace("__KEY__", KEY);
+src = src.replace("__DATA_URL__", DATA_URL.replace(/"/g, '\\"')).replace("__SITE__", SITE.replace(/"/g, '\\"'));
 
 const href = "javascript:" + encodeURIComponent(src);
 const outPath = path.join(ROOT, "bookmarklet.min.txt");

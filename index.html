@@ -347,13 +347,15 @@ function showResultFromItems(items) {
 // ===== bookmarklet 文字列生成 =====
 // 正本 bookmarklet.js を読み込み、サイトURL/キーを差し込んで javascript: リンク化する。
 async function buildBookmarkletHref() {
+  const base = location.href.replace(/[^/]*$/, "");   // index.html を除いたディレクトリURL
   const siteUrl = location.origin + location.pathname;
+  const dataUrl = base + "data/medicines.json";
   const res = await fetch("bookmarklet.js", { cache: "no-cache" });
   if (!res.ok) throw new Error("bookmarklet.js の読み込みに失敗");
   let src = await res.text();
   src = src
-    .replace("__SITE__", siteUrl.replace(/"/g, '\\"'))
-    .replace("__KEY__", STORAGE_KEY);
+    .replace("__DATA_URL__", dataUrl.replace(/"/g, '\\"'))
+    .replace("__SITE__", siteUrl.replace(/"/g, '\\"'));
   return "javascript:" + encodeURIComponent(src);
 }
 
