@@ -34,11 +34,13 @@
 
   function toast(msg) { alert(msg); }
 
-  // --- ページから商品名候補テキストを収集（構造非依存） ---
-  function collectCandidates() {
-    var set = Object.create(null);
-    var out = [];
-    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+  // --- ドキュメントから商品名候補テキストを収集（構造非依存・root指定可） ---
+  function collectCandidates(root, set, out) {
+    root = root || document.body;
+    set = set || Object.create(null);
+    out = out || [];
+    if (!root) return out;
+    var walker = (root.ownerDocument || document).createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
     var n;
     while ((n = walker.nextNode())) {
       var t = (n.nodeValue || "").replace(/\s+/g, " ").trim();
@@ -50,10 +52,9 @@
     return out;
   }
 
-  function run(MED) {
-    var candidates = collectCandidates();
-    // 候補テキスト -> 対象品目（最長一致）。重複品目は1件に集約。
-    var found = {};
+  // 候補テキスト群 -> 対象品目（最長一致）。重複品目は1件に集約。
+  function matchCandidates(candidates, MED, found) {
+    found = found || {};
     candidates.forEach(function (text) {
       var nt = norm(text);
       if (!nt) return;
@@ -65,8 +66,84 @@
       }
       if (best && !found[best.k]) found[best.k] = { med: best, raw: text };
     });
-    var hits = Object.keys(found).map(function (k) { return found[k]; });
-    renderOverlay(hits);
+    return found;
+  }
+
+  // 注文を示す手がかり（注文日）の有無で「まだ注文がある／もう無い」を判定
+  var ORDER_HINT = /\d{4}年\s*\d{1,2}月\s*\d{1,2}日|注文日|ご注文/;
+
+  // 注文履歴の全ページを startIndex で巡回し、候補テキストを集約する
+  function gatherAllPages(onProgress) {
+    var PAGE = 10;       // 1ページ当たりの注文数（Amazonの既定）
+    var CAP = 60;        // 安全上の最大ページ数
+    var set = Object.create(null);
+    var out = [];
+    // まず現在表示中のページを収集
+    collectCandidates(document.body, set, out);
+
+    var path = location.pathname;
+    var baseParams = new URLSearchParams(location.search);
+    var parser = new DOMParser();
+
+    function fetchPage(idx) {
+      baseParams.set("startIndex", String(idx));
+      var url = location.origin + path + "?" + baseParams.toString();
+      return fetch(url, { credentials: "same-origin", cache: "no-store" })
+        .then(function (r) { return r.ok ? r.text() : ""; })
+        .then(function (html) {
+          if (!html) return false;
+          var doc = parser.parseFromString(html, "text/html");
+          var body = doc.body;
+          var txt = body ? (body.innerText || body.textContent || "") : "";
+          if (!ORDER_HINT.test(txt)) return false; // 注文が無い＝最終ページ超過
+          var before = out.length;
+          collectCandidates(body, set, out);
+          return out.length > before; // 新規候補が増えたページのみ「続行」
+        })
+        .catch(function () { return false; });
+    }
+
+    // startIndex=10,20,... と順に取得（現在ページの startIndex に依存せず0基準で網羅）
+    // ページネーションが効かず同一ページが返る場合は「新規ゼロ」で停止する
+    function loop(idx) {
+      if (idx >= CAP * PAGE) return Promise.resolve(out);
+      if (onProgress) onProgress(idx / PAGE + 1);
+      return fetchPage(idx).then(function (more) {
+        if (!more) return out;
+        return loop(idx + PAGE);
+      });
+    }
+    // 0ページ目も取得（現在ページが途中startIndexの場合の取りこぼし防止）
+    return loop(0);
+  }
+
+  function run(MED) {
+    var prog = showProgress();
+    gatherAllPages(function (p) { prog.update(p); }).then(function (candidates) {
+      prog.done();
+      var found = matchCandidates(candidates, MED, {});
+      var hits = Object.keys(found).map(function (k) { return found[k]; });
+      renderOverlay(hits);
+    }).catch(function (e) {
+      prog.done();
+      // 失敗時は現在ページだけで判定（フォールバック）
+      var found = matchCandidates(collectCandidates(document.body), MED, {});
+      renderOverlay(Object.keys(found).map(function (k) { return found[k]; }));
+    });
+  }
+
+  // 取得中の簡易プログレス表示
+  function showProgress() {
+    var p = document.createElement("div");
+    p.id = "smtc-progress";
+    p.style.cssText = "position:fixed;top:16px;right:16px;z-index:2147483647;background:#1f8a70;color:#fff;" +
+      "font-family:sans-serif;font-size:13px;padding:10px 16px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25)";
+    p.textContent = "注文履歴を確認中…";
+    document.body.appendChild(p);
+    return {
+      update: function (n) { p.textContent = "注文履歴を確認中… (" + Math.round(n) + "ページ目)"; },
+      done: function () { if (p && p.parentNode) p.parentNode.removeChild(p); }
+    };
   }
 
   function yen(x) { return "¥" + Math.round(x).toLocaleString("ja-JP"); }
