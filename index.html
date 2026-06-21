@@ -97,6 +97,44 @@
   .empty { color: var(--muted); text-align: center; padding: 16px; }
   details summary { cursor: pointer; font-weight: 600; }
   .notice { font-size: .82rem; color: var(--muted); background:#f1f5f9; border-radius:8px; padding:8px 12px; }
+
+  /* ---- ドラッグ登録ガイド ---- */
+  .guide { background:#f8fbfa; border:1px solid #d8ece5; border-radius:12px; padding:16px; margin:12px 0; }
+  .fakebar {
+    display:flex; align-items:center; gap:10px; background:#eaeef2; border:1px solid #d5dde4;
+    border-radius:8px 8px 0 0; padding:7px 12px; font-size:.8rem; color:#7a8794;
+  }
+  .fakebar .star { color:#f0b400; }
+  .fakebar .drop {
+    margin-left:6px; border:2px dashed #1f8a70; border-radius:6px; padding:3px 12px;
+    color:#1f8a70; font-weight:700; background:#fff; animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{ background:#fff } 50%{ background:#e6f6f1 } }
+  .stage { position:relative; height:118px; background:#fff; border:1px solid #e2e8f0; border-top:0; border-radius:0 0 8px 8px; overflow:hidden; }
+  .demoBtn {
+    position:absolute; left:24px; top:64px; background:var(--accent); color:#1f2933; font-weight:700;
+    padding:8px 14px; border-radius:8px; border:1px solid #e0a000; font-size:.85rem; white-space:nowrap;
+    box-shadow:0 4px 10px rgba(0,0,0,.15); animation: dragUp 3s ease-in-out infinite;
+  }
+  @keyframes dragUp {
+    0%   { left:24px; top:64px; opacity:1; }
+    55%  { left:150px; top:-2px; opacity:1; }
+    70%  { left:150px; top:-2px; opacity:.25; }
+    71%  { left:24px; top:64px; opacity:0; }
+    85%  { left:24px; top:64px; opacity:1; }
+    100% { left:24px; top:64px; opacity:1; }
+  }
+  .demoHand { position:absolute; font-size:1.3rem; animation: handMove 3s ease-in-out infinite; }
+  @keyframes handMove {
+    0%{ left:80px; top:78px } 55%{ left:206px; top:12px } 70%{ left:206px; top:12px }
+    71%{ left:80px; top:78px } 100%{ left:80px; top:78px }
+  }
+  .bigbtn-wrap { text-align:center; margin:14px 0 4px; }
+  .arrow-up { text-align:center; color:#1f8a70; font-weight:700; font-size:.9rem; margin-top:10px; }
+  .arrow-up .a { display:block; font-size:1.4rem; animation: bob 1.2s ease-in-out infinite; }
+  @keyframes bob { 0%,100%{ transform:translateY(0) } 50%{ transform:translateY(-5px) } }
+  .bm.big2 { font-size:1.05rem; padding:14px 24px; }
+  kbd { background:#fff; border:1px solid #cfd8e0; border-bottom-width:2px; border-radius:5px; padding:1px 7px; font-size:.85em; }
 </style>
 </head>
 <body>
@@ -108,24 +146,45 @@
 <div class="wrap">
 
   <div class="card">
-    <h2><span class="num">1</span>ブックマークレットを登録</h2>
-    <p class="lead">下のボタンをブラウザのブックマークバーへ<strong>ドラッグ＆ドロップ</strong>して登録します。</p>
-    <p><a class="bm" id="bookmarklet" href="#">📋 OTC医薬品を抽出</a></p>
-    <p class="hint">※ クリックではなく、ドラッグして登録してください。スマホの場合は手順3の「手動で貼り付け」をご利用ください。</p>
+    <h2><span class="num">1</span>ボタンを「お気に入りバー」に登録（最初の1回だけ）</h2>
+    <p class="lead">下の緑のボタンを、画面いちばん上の<strong>お気に入りバー（ブックマークバー）へドラッグ</strong>するだけ。インストールは不要です。</p>
+
+    <div class="guide">
+      <div class="fakebar">
+        <span class="star">★</span> お気に入りバー
+        <span class="drop">ここへ↓ドロップ</span>
+      </div>
+      <div class="stage">
+        <div class="demoBtn">📋 薬の控除をチェック</div>
+        <div class="demoHand">🖱️</div>
+      </div>
+      <p class="hint" style="margin:8px 2px 0;">↑ こんなふうに、ボタンを上のバーまで「つかんで運ぶ」だけ（動きは見本です）</p>
+    </div>
+
+    <div class="bigbtn-wrap">
+      <a class="bm big2" id="bookmarklet" href="#" draggable="true">📋 薬の控除をチェック</a>
+      <div class="arrow-up"><span class="a">⬆️</span>このボタンを上の「お気に入りバー」へドラッグ</div>
+    </div>
+
+    <p class="hint" style="margin-top:14px;">
+      💡 お気に入りバーが見当たらないときは、キーボードで <kbd>Ctrl</kbd>＋<kbd>Shift</kbd>＋<kbd>B</kbd>（Macは <kbd>⌘</kbd>＋<kbd>Shift</kbd>＋<kbd>B</kbd>）を押すと表示されます。<br>
+      ※ ボタンは「クリック」ではなく「ドラッグ（つかんで運ぶ）」で登録します。スマホの方は下の「スマホの方・手で確認する」をお使いください。
+    </p>
   </div>
 
   <div class="card">
-    <h2><span class="num">2</span>Amazonの注文履歴で実行</h2>
+    <h2><span class="num">2</span>Amazonの注文履歴を開いてボタンを押す</h2>
     <ol class="steps">
-      <li>Amazonの「<a href="https://www.amazon.co.jp/gp/css/order-history" target="_blank" rel="noopener">注文履歴</a>」を開く（対象期間を選ぶ）</li>
-      <li>登録したブックマークレットをクリック</li>
-      <li>商品名が抽出され、自動でこのページに戻り判定結果が表示されます</li>
+      <li>Amazonの「<a href="https://www.amazon.co.jp/gp/css/order-history" target="_blank" rel="noopener">注文履歴</a>」を開く（薬を買った時期に絞る）</li>
+      <li>お気に入りバーに登録した「<strong>📋 薬の控除をチェック</strong>」を<strong>クリック</strong></li>
+      <li>その場で画面右上に<strong>判定パネル</strong>が出ます（対象の薬・合計金額の入力・節税額）</li>
     </ol>
-    <p class="notice">抽出した商品名はあなたのブラウザ内（localStorage）にのみ保存され、外部サーバーには一切送信されません。</p>
+    <p class="notice">すべての処理はあなたのブラウザ内だけで行われ、購入データが外部に送信されることはありません。</p>
   </div>
 
   <div class="card">
-    <h2><span class="num">3</span>判定結果</h2>
+    <h2><span class="num">3</span>判定結果（スマホの方・手で確認する）</h2>
+    <p class="lead">PCの方は手順1〜2だけでAmazon上に結果が出ます。スマホの方や、手で試したい方はこちらに薬の名前を入れて判定できます。</p>
     <div id="status" class="empty">データを読み込み中…</div>
 
     <div id="result" style="display:none;">
@@ -143,9 +202,9 @@
       <p class="small muted" id="unmatchedNote"></p>
     </div>
 
-    <details style="margin-top:14px;">
-      <summary>手動で商品名を貼り付ける（スマホ・うまく動かない場合）</summary>
-      <p class="small muted" style="margin:8px 0;">1行に1商品、商品名を貼り付けて判定ボタンを押してください。</p>
+    <details style="margin-top:14px;" id="manualBox">
+      <summary>薬の名前を手で入力して判定する</summary>
+      <p class="small muted" style="margin:8px 0;">1行に1つ、買った薬の名前を入力（または貼り付け）して判定ボタンを押してください。</p>
       <textarea id="manualInput" placeholder="例：&#10;【第2類医薬品】ロキソニンSテープ 7枚&#10;アレグラFX 28錠"></textarea>
       <p><button class="btn" id="manualBtn">この内容で判定する</button>
          <button class="btn sub" id="clearBtn">クリア</button></p>
