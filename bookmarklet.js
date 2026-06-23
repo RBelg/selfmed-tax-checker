@@ -34,38 +34,56 @@
 
   function toast(msg) { alert(msg); }
 
-  // --- ドキュメントから商品名候補テキストを収集（構造非依存・root指定可） ---
-  function collectCandidates(root, set, out) {
-    root = root || document.body;
-    set = set || Object.create(null);
-    out = out || [];
-    if (!root) return out;
+  // 正規化済みテキスト -> 対象品目（最長一致）。なければ null
+  function matchOne(nt, MED) {
+    var best = null;
+    for (var i = 0; i < MED.length; i++) {
+      var k = MED[i].k;
+      if (k.length < MIN_MATCH_LEN) { if (k === nt && (!best || k.length > best.k.length)) best = MED[i]; continue; }
+      if (nt.indexOf(k) !== -1 && (!best || k.length > best.k.length)) best = MED[i];
+    }
+    return best;
+  }
+
+  // 価格パターン（¥1,980 / 1,980円 など）
+  var PRICE_RE = /[¥￥]\s?([\d,]{2,})|([\d,]{2,})\s?円/;
+  // ある要素テキストから妥当な価格(数値)を1つ取り出す
+  function priceInText(txt) {
+    var m = txt && txt.match(PRICE_RE);
+    if (!m) return null;
+    var v = parseInt((m[1] || m[2] || "").replace(/,/g, ""), 10);
+    return (v >= 10 && v <= 1000000) ? v : null;
+  }
+  // 商品名ノードの近傍（祖先をたどって）から価格を推定
+  function findPriceNear(node) {
+    var el = node && node.parentElement;
+    var hops = 0;
+    while (el && hops < 7) {
+      var p = priceInText(el.textContent || "");
+      if (p != null) return p;
+      el = el.parentElement; hops++;
+    }
+    return null;
+  }
+
+  // ドキュメントを走査し、対象品目を検出して found(キー=品目正規化名) に集約。
+  // 各ヒットに 販売名・成分・近傍価格・そのページURL を持たせる。
+  function processDoc(root, MED, found, pageUrl) {
+    if (!root) return found;
+    var seen = Object.create(null);
     var walker = (root.ownerDocument || document).createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
     var n;
     while ((n = walker.nextNode())) {
       var t = (n.nodeValue || "").replace(/\s+/g, " ").trim();
-      if (t.length >= 6 && t.length <= 200 && !/^[\d¥,，.\s]+$/.test(t) && !set[t]) {
-        set[t] = 1;
-        out.push(t);
+      if (t.length < 6 || t.length > 200 || /^[\d¥,，.\s]+$/.test(t) || seen[t]) continue;
+      seen[t] = 1;
+      var nt = norm(t);
+      if (!nt) continue;
+      var best = matchOne(nt, MED);
+      if (best && !found[best.k]) {
+        found[best.k] = { med: best, raw: t, price: findPriceNear(n), pageUrl: pageUrl || location.href };
       }
     }
-    return out;
-  }
-
-  // 候補テキスト群 -> 対象品目（最長一致）。重複品目は1件に集約。
-  function matchCandidates(candidates, MED, found) {
-    found = found || {};
-    candidates.forEach(function (text) {
-      var nt = norm(text);
-      if (!nt) return;
-      var best = null;
-      for (var i = 0; i < MED.length; i++) {
-        var k = MED[i].k;
-        if (k.length < MIN_MATCH_LEN) { if (k === nt) { if (!best || k.length > best.k.length) best = MED[i]; } continue; }
-        if (nt.indexOf(k) !== -1) { if (!best || k.length > best.k.length) best = MED[i]; }
-      }
-      if (best && !found[best.k]) found[best.k] = { med: best, raw: text };
-    });
     return found;
   }
 
@@ -121,26 +139,26 @@
     return u.href;
   }
 
-  // 全ページをiframeで巡回し候補テキストを集約する
-  function gatherAllPages(onProgress) {
+  // 全ページをiframeで巡回し、対象品目＋近傍価格を found に集約する
+  function gatherAllPages(MED, onProgress) {
     var CAP = 100;          // 安全上の最大ページ数
     var PAGE = 10;          // 1ページ当たりの注文数（Amazon既定）
     var PAGE_TIMEOUT = 9000;
-    var set = Object.create(null);
-    var out = [];
+    var found = Object.create(null);
     var seenSig = Object.create(null);
 
-    // 安全用に現在表示ページを先に収集（描画済みなので確実に取れる）
-    collectCandidates(document.body, set, out);
+    // 安全用に現在表示ページを先に処理（描画済みなので確実に取れる）
+    processDoc(document.body, MED, found, location.href);
 
     function loop(idx, pageNo) {
-      if (pageNo > CAP) return Promise.resolve(out);
+      if (pageNo > CAP) return Promise.resolve(found);
       if (onProgress) onProgress(pageNo);
-      return loadPageViaIframe(buildPageUrl(idx), PAGE_TIMEOUT).then(function (p) {
-        if (!p || !p.sig) return out;          // 注文が描画されない＝最終ページ超過
-        if (seenSig[p.sig]) return out;        // 既出ページ＝これ以上進まない
+      var pageUrl = buildPageUrl(idx);
+      return loadPageViaIframe(pageUrl, PAGE_TIMEOUT).then(function (p) {
+        if (!p || !p.sig) return found;          // 注文が描画されない＝最終ページ超過
+        if (seenSig[p.sig]) return found;        // 既出ページ＝これ以上進まない
         seenSig[p.sig] = 1;
-        collectCandidates(p.body, set, out);
+        processDoc(p.body, MED, found, pageUrl);
         return loop(idx + PAGE, pageNo + 1);
       });
     }
@@ -149,15 +167,13 @@
 
   function run(MED) {
     var prog = showProgress();
-    gatherAllPages(function (p) { prog.update(p); }).then(function (candidates) {
+    gatherAllPages(MED, function (p) { prog.update(p); }).then(function (found) {
       prog.done();
-      var found = matchCandidates(candidates, MED, {});
-      var hits = Object.keys(found).map(function (k) { return found[k]; });
-      renderOverlay(hits);
+      renderOverlay(Object.keys(found).map(function (k) { return found[k]; }));
     }).catch(function (e) {
       prog.done();
       // 失敗時は現在ページだけで判定（フォールバック）
-      var found = matchCandidates(collectCandidates(document.body), MED, {});
+      var found = processDoc(document.body, MED, Object.create(null), location.href);
       renderOverlay(Object.keys(found).map(function (k) { return found[k]; }));
     });
   }
@@ -185,25 +201,34 @@
     var root = host.attachShadow({ mode: "open" });
 
     var rows = hits.map(function (h, i) {
-      return '<label class="row"><input type="checkbox" checked data-i="' + i + '">' +
-        '<span class="nm">' + esc(h.med.n) + '</span>' +
-        '<span class="ig">' + esc(h.med.g || "") + '</span></label>';
+      return '<div class="row">' +
+        '<input type="checkbox" checked data-i="' + i + '">' +
+        '<div class="mid">' +
+          '<div class="nm">' + esc(h.med.n) + '</div>' +
+          '<div class="ig">' + esc(h.med.g || "") +
+            (h.pageUrl ? ' · <a class="vf" href="' + esc(h.pageUrl) + '" target="_blank" rel="noopener">注文を確認</a>' : '') +
+          '</div>' +
+        '</div>' +
+        '<input class="pr" type="number" min="0" step="1" data-i="' + i + '" value="' + (h.price != null ? h.price : "") + '" placeholder="円">' +
+      '</div>';
     }).join("");
 
     root.innerHTML =
       '<style>' +
       ':host{all:initial}' +
-      '.panel{font-family:-apple-system,"Segoe UI","Yu Gothic",Meiryo,sans-serif;width:340px;max-height:84vh;overflow:auto;' +
+      '.panel{font-family:-apple-system,"Segoe UI","Yu Gothic",Meiryo,sans-serif;width:360px;max-height:86vh;overflow:auto;' +
       'background:#fff;color:#1f2933;border:1px solid #d8e0e8;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.18);font-size:13px;line-height:1.6}' +
       '.hd{background:linear-gradient(135deg,#1f8a70,#156b56);color:#fff;padding:10px 14px;border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center}' +
       '.hd b{font-size:14px}.x{cursor:pointer;font-size:18px;line-height:1;opacity:.9}' +
       '.bd{padding:12px 14px}' +
-      '.verdict{border-radius:10px;padding:10px;text-align:center;margin-bottom:10px}' +
+      '.verdict{border-radius:10px;padding:10px;text-align:center;margin:8px 0}' +
       '.yes{background:#e6f6f1;border:1px solid #bfe6da}.no{background:#fff6e6;border:1px solid #ffe0a3}' +
       '.big{font-size:16px;font-weight:800}.yes .big{color:#1f8a70}.no .big{color:#b45309}' +
-      '.amt{width:130px;padding:6px 8px;border:1px solid #cfd8e0;border-radius:6px;text-align:right;font-size:14px}' +
-      '.row{display:flex;gap:6px;align-items:flex-start;padding:5px 0;border-bottom:1px solid #eef2f5}' +
-      '.nm{flex:1;font-weight:600}.ig{color:#66727f;font-size:11px}' +
+      '.row{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #eef2f5}' +
+      '.mid{flex:1;min-width:0}.nm{font-weight:600;word-break:break-all}.ig{color:#66727f;font-size:11px}' +
+      '.vf{color:#1f8a70}' +
+      '.pr{width:78px;padding:5px 6px;border:1px solid #cfd8e0;border-radius:6px;text-align:right;font-size:13px;flex:none}' +
+      '.totalline{margin:10px 0 2px;font-size:14px;text-align:right}.totalline b{font-size:17px}' +
       '.muted{color:#66727f}.small{font-size:11px}' +
       'table{width:100%;border-collapse:collapse;margin-top:6px}td{padding:3px 0;border-bottom:1px solid #eef2f5}.r{text-align:right}' +
       '.btns{display:flex;gap:8px;margin-top:10px}' +
@@ -215,14 +240,15 @@
         '<div class="hd"><b>セルフメディケーション判定</b><span class="x" id="x">×</span></div>' +
         '<div class="bd">' +
           (hits.length === 0
-            ? '<div class="empty">このページで対象のOTC医薬品は見つかりませんでした。<br>注文履歴の対象期間を表示して再実行してください。</div>'
-            : '<div class="muted small">対象薬を <b>' + hits.length + '件</b> 検出。下のチェックを外すと除外できます。</div>' +
+            ? '<div class="empty">対象のOTC医薬品は見つかりませんでした。<br>注文履歴の対象期間（年）を選んでから実行してください。</div>'
+            : '<div class="muted small">対象薬を <b>' + hits.length + '件</b> 検出。金額は自動取得した推定値です（修正可・不要な行はチェックを外す）。</div>' +
               '<div id="list">' + rows + '</div>' +
-              '<div style="margin:10px 0 4px">対象薬の合計購入額：<input class="amt" id="amt" type="number" min="0" step="1" placeholder="例 15000"> 円</div>' +
+              '<div class="totalline">対象薬の合計：<b id="total">¥0</b></div>' +
               '<div id="verdict"></div>' +
-              '<div id="tax"></div>') +
+              '<div id="tax"></div>' +
+              '<div class="small muted" style="margin-top:6px">「注文を確認」は別タブで開くのでこの画面は消えません。価格が空欄の薬は注文を開いて手入力してください。</div>') +
           '<div class="btns">' +
-            (SITE ? '<a class="btn site" id="site" href="' + esc(SITE) + '" target="_blank" rel="noopener">サイトで詳しく</a>' : '') +
+            (SITE ? '<a class="btn site" href="' + esc(SITE) + '" target="_blank" rel="noopener">使い方・詳しく</a>' : '') +
             '<a class="btn kofi" href="https://buymeacoffee.com/r.bleg" target="_blank" rel="noopener">☕ 応援</a>' +
           '</div>' +
         '</div>' +
@@ -233,13 +259,18 @@
 
     if (hits.length === 0) return;
 
-    var checks = root.querySelectorAll('input[type=checkbox]');
-    var amt = root.getElementById("amt");
-    function selectedCount() {
-      var c = 0; checks.forEach(function (cb) { if (cb.checked) c++; }); return c;
+    function priceAt(i) {
+      var pr = root.querySelector('input.pr[data-i="' + i + '"]');
+      return pr ? (Number(pr.value) || 0) : 0;
+    }
+    function checkedAt(i) {
+      var cb = root.querySelector('input[type=checkbox][data-i="' + i + '"]');
+      return cb ? cb.checked : false;
     }
     function update() {
-      var total = Number(amt.value) || 0;
+      var total = 0;
+      for (var i = 0; i < hits.length; i++) if (checkedAt(i)) total += priceAt(i);
+      root.getElementById("total").textContent = yen(total);
       var ded = Math.max(0, Math.min(total - THRESHOLD, DEDUCT_CAP));
       var worth = total > THRESHOLD;
       var v = root.getElementById("verdict");
@@ -247,8 +278,8 @@
       v.innerHTML = worth
         ? '<div class="big">✅ 申告する価値あり</div><div class="small">控除額 ' + yen(ded) + '</div>'
         : (total > 0
-            ? '<div class="big">あと ' + yen(THRESHOLD + 1 - total) + '</div><div class="small">12,000円超で対象</div>'
-            : '<div class="small muted">合計購入額を入力してください</div>');
+            ? '<div class="big">あと ' + yen(THRESHOLD + 1 - total) + ' で対象</div><div class="small">12,000円超で対象</div>'
+            : '<div class="small muted">金額を入力すると判定します</div>');
       var tx = root.getElementById("tax");
       if (worth && ded > 0) {
         tx.innerHTML = '<table><tr><td class="muted small">所得税率</td><td class="r muted small">節税額の目安</td></tr>' +
@@ -258,15 +289,8 @@
           '</table><div class="small muted" style="margin-top:4px">※住民税10%込み。通常の医療費控除(10万円超)とは選択適用。</div>';
       } else { tx.innerHTML = ""; }
     }
-    checks.forEach(function (cb) { cb.onchange = update; });
-    amt.oninput = update;
-    // 「詳しく」リンクに検出品目を渡す（サイト側で価格入力＆詳細判定）
-    var siteLink = root.getElementById("site");
-    if (siteLink && SITE) {
-      var items = hits.map(function (h) { return { name: h.med.n, price: "" }; });
-      siteLink.href = SITE + "#smtc=" + encodeURIComponent(JSON.stringify(items));
-    }
-    amt.focus();
+    root.querySelectorAll('input[type=checkbox]').forEach(function (cb) { cb.onchange = update; });
+    root.querySelectorAll('input.pr').forEach(function (pr) { pr.oninput = update; });
     update();
   }
 
