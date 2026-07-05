@@ -291,6 +291,14 @@
       ? '<div class="cached small">前回の結果（約' + opts.cachedMin + '分前）を表示中。最新にするには「再スキャン」を押してください。</div>'
       : "";
 
+    var stepsNote =
+      '<div class="steps small">' +
+        '<b>使い方</b>：' +
+        '① Amazonの注文履歴で<b>調べたい年度</b>に切り替える → ' +
+        '② 下の「<b>再スキャン</b>」を押す → ' +
+        '③ 金額を確認（自動取得の推定値・修正できます）' +
+      '</div>';
+
     root.innerHTML =
       '<style>' +
       ':host{all:initial}' +
@@ -300,6 +308,7 @@
       '.hd b{font-size:17px}.x{cursor:pointer;font-size:22px;line-height:1;opacity:.9}' +
       '.bd{padding:14px 16px}' +
       '.cached{background:#fff6e6;border:1px solid #ffe0a3;border-radius:8px;padding:8px 10px;margin-bottom:10px;color:#8a5a00}' +
+      '.steps{background:#f1f8f6;border:1px solid #cfe8df;border-radius:8px;padding:8px 10px;margin-bottom:10px;color:#2a5d4f;line-height:1.7}' +
       '.verdict{border-radius:10px;padding:12px;text-align:center;margin:10px 0}' +
       '.yes{background:#e6f6f1;border:1px solid #bfe6da}.no{background:#fff6e6;border:1px solid #ffe0a3}' +
       '.big{font-size:20px;font-weight:800}.yes .big{color:#1f8a70}.no .big{color:#b45309}' +
@@ -320,6 +329,7 @@
       '<div class="panel">' +
         '<div class="hd"><b>セルフメディケーション判定</b><span class="x" id="x">×</span></div>' +
         '<div class="bd">' +
+          stepsNote +
           cachedNote +
           (okHits.length === 0
             ? '<div class="empty">対象のOTC医薬品は見つかりませんでした。' +
@@ -334,7 +344,7 @@
           outSection +
           '<div class="btns">' +
             '<button class="btn rescan" id="rescan">再スキャン</button>' +
-            '<a class="btn kofi" href="https://buymeacoffee.com/r.bleg" target="_blank" rel="noopener">☕ 応援</a>' +
+            '<a class="btn kofi" href="https://ko-fi.com/rbelg" target="_blank" rel="noopener">☕ 応援</a>' +
           '</div>' +
         '</div>' +
       '</div>';
