@@ -66,6 +66,26 @@
     return null;
   }
 
+  // 商品名ノードから、その注文の詳細ページ（無ければ商品ページ）URLを特定する。
+  // 祖先を上りながら最初に見つかった注文詳細リンクを返す＝その商品が属する注文。
+  function findOrderLink(node, baseUrl) {
+    var el = node && node.parentElement;
+    var hops = 0, productHref = null;
+    function abs(h) { try { return new URL(h, baseUrl).href; } catch (e) { return null; } }
+    while (el && hops < 9) {
+      if (el.querySelector) {
+        var od = el.querySelector('a[href*="order-details"],a[href*="orderID"],a[href*="orderId"],a[href*="/orders/details"]');
+        if (od && od.getAttribute("href")) { var u = abs(od.getAttribute("href")); if (u) return u; }
+        if (!productHref) {
+          var pa = el.querySelector('a[href*="/dp/"],a[href*="/gp/product/"],a[href*="/product/"]');
+          if (pa && pa.getAttribute("href")) productHref = abs(pa.getAttribute("href"));
+        }
+      }
+      el = el.parentElement; hops++;
+    }
+    return productHref;
+  }
+
   // 医薬品クラス表記（第1〜3類医薬品／指定第2類医薬品）。医薬部外品は含めない。
   var DRUG_RE = /第[\s　]*[1-3１２３][\s　]*類医薬品/;
 
@@ -85,9 +105,9 @@
       if (!nt) continue;
       var best = matchOne(nt, MED);
       if (best) {
-        if (!acc.ok[best.k]) acc.ok[best.k] = { name: best.n, ingredient: best.g, price: findPriceNear(n), pageUrl: pageUrl };
+        if (!acc.ok[best.k]) acc.ok[best.k] = { name: best.n, ingredient: best.g, price: findPriceNear(n), pageUrl: findOrderLink(n, pageUrl) || pageUrl };
       } else if (DRUG_RE.test(t) && t.length <= 120) {
-        if (!acc.out[nt]) acc.out[nt] = { name: t, price: findPriceNear(n), pageUrl: pageUrl };
+        if (!acc.out[nt]) acc.out[nt] = { name: t, price: findPriceNear(n), pageUrl: findOrderLink(n, pageUrl) || pageUrl };
       }
     }
     return acc;
