@@ -54,16 +54,60 @@
     var v = parseInt((m[1] || m[2] || "").replace(/,/g, ""), 10);
     return (v >= 10 && v <= 1000000) ? v : null;
   }
-  // 商品名ノードの近傍（祖先をたどって）から価格を推定
+  // 商品名ノードの近傍（祖先をたどって）から価格を推定。
+  // textContentが大きすぎる祖先はページ全体等の可能性が高く、無関係な価格を拾うので打ち切る。
   function findPriceNear(node) {
     var el = node && node.parentElement;
     var hops = 0;
-    while (el && hops < 7) {
-      var p = priceInText(el.textContent || "");
+    while (el && hops < 10) {
+      var txt = el.textContent || "";
+      if (txt.length > 1500) return null;
+      var p = priceInText(txt);
       if (p != null) return p;
       el = el.parentElement; hops++;
     }
     return null;
+  }
+
+  // ドキュメント内で、指定した品目(正規化キー)の商品名を探し、その近傍価格を返す
+  function priceForMedInDoc(root, medK) {
+    if (!root) return null;
+    var walker = (root.ownerDocument || document).createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+    var n;
+    while ((n = walker.nextNode())) {
+      var t = (n.nodeValue || "").replace(/\s+/g, " ").trim();
+      if (t.length < 6 || t.length > 200) continue;
+      var nt = norm(t);
+      if (nt && nt.indexOf(medK) !== -1) {
+        var p = findPriceNear(n);
+        if (p != null) return p;
+      }
+    }
+    return null;
+  }
+
+  // 価格が取れなかった対象薬について、注文詳細ページを開いて購入価格を取得する第2パス。
+  // 商品ページ(/dp/)へのフォールバックURLは「現在価格」で購入価格と違うため対象外。
+  function enrichPrices(acc, onProgress) {
+    var MAX_DETAIL = 15;
+    var keys = Object.keys(acc.ok).filter(function (k) {
+      var h = acc.ok[k];
+      return h.price == null && /order-details|orderID|orderId|\/orders\/details/i.test(h.pageUrl || "");
+    }).slice(0, MAX_DETAIL);
+    var i = 0;
+    function next() {
+      if (i >= keys.length) return Promise.resolve(acc);
+      var k = keys[i++];
+      if (onProgress) onProgress(i, keys.length);
+      return loadPageViaIframe(acc.ok[k].pageUrl, 9000).then(function (p) {
+        if (p && p.body) {
+          var pr = priceForMedInDoc(p.body, k);
+          if (pr != null) acc.ok[k].price = pr;
+        }
+        return next();
+      });
+    }
+    return next();
   }
 
   // 商品名ノードから、その注文の詳細ページ（無ければ商品ページ）URLを特定する。
@@ -216,6 +260,9 @@
   function startScan(MED) {
     var prog = showProgress();
     gatherAllPages(MED, function (p) { prog.update(p); }).then(function (acc) {
+      // 第2パス: 一覧に価格が無い薬は注文詳細ページから購入価格を取得
+      return enrichPrices(acc, function (i, n) { prog.update("購入価格を確認中… (" + i + "/" + n + ")"); });
+    }).then(function (acc) {
       prog.done();
       var a = accToArrays(acc);
       saveCache(a.ok, a.out);
@@ -246,7 +293,9 @@
     p.textContent = "注文履歴を確認中…";
     document.body.appendChild(p);
     return {
-      update: function (n) { p.textContent = "注文履歴を確認中… (" + Math.round(n) + "ページ目)"; },
+      update: function (n) {
+        p.textContent = (typeof n === "string") ? n : "注文履歴を確認中… (" + Math.round(n) + "ページ目)";
+      },
       done: function () { if (p && p.parentNode) p.parentNode.removeChild(p); }
     };
   }
