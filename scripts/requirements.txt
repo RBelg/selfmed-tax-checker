@@ -1,4 +1,3 @@
 openpyxl>=3.1
 requests>=2.31
-# 非スイッチOTCのPDF対応を追加する場合:
-# pdfplumber>=0.11
+pdfplumber>=0.11  # 非スイッチOTC（PDF）対象品目一覧のパース用

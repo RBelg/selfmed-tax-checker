@@ -450,7 +450,7 @@
   // --- データ取得して実行 ---
   // /*__DATASOURCE_START__*/ から END までを build_console.mjs が埋め込みデータに差し替える。
   /*__DATASOURCE_START__*/
-  fetch(DATA_URL, { cache: "force-cache" })
+  fetch(DATA_URL, { cache: "no-cache" })
     .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
     .then(function (data) {
       // medicines.json は {items:[{name,name_norm,ingredient,...}]}。軽量化のため n/k/g に詰め替え。

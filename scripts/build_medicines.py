@@ -25,6 +25,11 @@ from pathlib import Path
 import openpyxl
 import requests
 
+try:
+    import pdfplumber  # 非スイッチOTC（PDF）用
+except ImportError:
+    pdfplumber = None
+
 # --- 取得元（月次で URL を差し替える） -----------------------------------
 # 厚労省ページから「対象品目一覧」xlsx の直リンクを確認して更新すること。
 # 非スイッチOTC は最新版が PDF のみの月がある。xlsx が出ている月のみここに追加する。
@@ -33,10 +38,14 @@ SOURCES = [
         "type": "switch",
         "label": "スイッチOTC 令和8年6月公表",
         "url": "https://www.mhlw.go.jp/content/10800000/001705872.xlsx",
+        "kind": "xlsx",
     },
-    # 非スイッチOTC: 最新版が PDF のみのため当面未対応。
-    # xlsx が公開されている月は下記の形で追加する:
-    # {"type": "non-switch", "label": "非スイッチOTC 令和8年X月", "url": "https://www.mhlw.go.jp/content/..."},
+    {
+        "type": "non-switch",
+        "label": "非スイッチOTC 令和8年7月公表",
+        "url": "https://www.mhlw.go.jp/content/10800000/001705874.pdf",
+        "kind": "pdf",
+    },
 ]
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (selfmed-tax-checker data builder)"}
@@ -132,6 +141,54 @@ def parse_xlsx(content: bytes, src_type: str) -> list[dict]:
     return items
 
 
+def parse_pdf(content: bytes, src_type: str) -> list[dict]:
+    """PDFの表（対象品目一覧）を pdfplumber の表抽出でパースする。
+    列は xlsx と同じ: No / 販売名 / JANコード / 包装単位 / 発売元 / 製造販売業者名 / 有効成分名 / 備考。
+    """
+    if pdfplumber is None:
+        raise RuntimeError("pdfplumber が未インストールです（pip install pdfplumber）")
+
+    items = []
+    cols: dict[str, int] | None = None
+    with pdfplumber.open(io.BytesIO(content)) as pdf:
+        for page in pdf.pages:
+            for table in page.extract_tables():
+                for row in table:
+                    norm_row = [normalize_header(c) for c in row]
+                    if "販売名" in norm_row:
+                        # ヘッダ行 → 列マップを更新
+                        cols = {}
+                        for idx, h in enumerate(norm_row):
+                            key = COLUMN_ALIASES.get(h)
+                            if key and key not in cols:
+                                cols[key] = idx
+                        continue
+                    if not cols or "name" not in cols:
+                        continue
+                    ni = cols["name"]
+                    name = row[ni] if ni < len(row) else None
+                    if not name or not str(name).strip():
+                        continue
+                    name = str(name).strip()
+
+                    def get(key, _row=row):
+                        i = cols.get(key)
+                        if i is None or i >= len(_row) or _row[i] is None:
+                            return ""
+                        return str(_row[i]).strip()
+
+                    items.append({
+                        "name": name,
+                        "name_norm": normalize_name(name),
+                        "ingredient": get("ingredient"),
+                        "maker": get("maker"),
+                        "type": src_type,
+                    })
+    if not items:
+        raise ValueError("PDFから品目を抽出できませんでした（レイアウト変更の可能性）")
+    return items
+
+
 def dedupe(items: list[dict]) -> list[dict]:
     """name_norm で重複排除（同一販売名の容量違い等を1件に集約）。"""
     seen: dict[str, dict] = {}
@@ -151,7 +208,8 @@ def main() -> int:
         print(f"[{src['type']}] {src['label']}")
         try:
             content = download(src["url"])
-            items = parse_xlsx(content, src["type"])
+            kind = src.get("kind", "xlsx")
+            items = parse_pdf(content, src["type"]) if kind == "pdf" else parse_xlsx(content, src["type"])
             print(f"    parsed: {len(items)} 行")
             all_items.extend(items)
             labels.append(src["label"])
