@@ -119,6 +119,9 @@
     });
     var orders = Object.keys(byOrder).slice(0, MAX_ORDERS);
     var i = 0;
+    // 失敗時の原因切り分け用の診断情報（パネルに表示）
+    var diag = { orders: orders.length, ids: Object.keys(byOrder).length, page: 0, sig: 0, yen: 0, hit: 0, url: "" };
+    acc.diag = diag;
 
     // 注文詳細ページを候補URL順に試し、注文が実際に表示されたページを返す
     // 注文詳細は従来型（サーバー描画）ページなので fetch で取得する。
@@ -205,7 +208,14 @@
       if (onProgress) onProgress(i, orders.length);
       return loadDetail(oid).then(function (p) {
         if (!p || !p.body) return next();
+        // --- 診断: ページ取得できたか / 注文番号あるか / ¥表記の数 / 商品名一致数 ---
+        diag.page++;
+        if (p.sig) diag.sig++;
+        if (!diag.url) diag.url = (p.url || "").replace(location.origin, "").slice(0, 60);
+        var ym = (p.body.textContent || "").match(/[¥￥]\s?[\d,]{2,}/g);
+        if (ym) diag.yen += ym.length;
         var got = pricesFrom(p.body, keys);
+        if (got) diag.hit += Object.keys(got).length;
         if (got) { applyPrices(keys, got, p.url); return next(); }
         // 価格が無いページ（商品ページ等）なら「注文内容を表示」をたどる
         var link = findOrderContentLink(p.doc, p.url || location.href);
@@ -414,7 +424,7 @@
       prog.done();
       var a = accToArrays(acc);
       saveCache(a.ok, a.out);
-      renderOverlay(a.ok, a.out, { onRescan: function () { startScan(MED); } });
+      renderOverlay(a.ok, a.out, { onRescan: function () { startScan(MED); }, diag: acc.diag });
     }).catch(function (e) {
       prog.done();
       var a = accToArrays(processDoc(document.body, MED, { ok: Object.create(null), out: Object.create(null) }, location.href));
@@ -479,6 +489,14 @@
       return '<div class="orow"><span class="onm">' + esc(o.name) + '</span>' +
         (o.pageUrl ? ' <a class="vf" href="' + esc(o.pageUrl) + '" target="_blank" rel="noopener">確認</a>' : '') + '</div>';
     }).join("");
+    var dg = opts.diag;
+    var diagSection = dg
+      ? '<details class="outbox"><summary>診断情報（価格が取れない時に共有してください）</summary>' +
+        '<div class="orow">注文番号 ' + dg.ids + ' 件 / 詳細ページ取得 ' + dg.page + ' / 注文番号一致 ' + dg.sig +
+        ' / ¥表記 ' + dg.yen + ' 個 / 商品名一致 ' + dg.hit + '</div>' +
+        '<div class="orow">URL: ' + esc(dg.url || "(取得できず)") + '</div></details>'
+      : "";
+
     var outSection = outHits.length
       ? '<details class="outbox"><summary>対象外の医薬品（参考）' + outHits.length + '件</summary>' +
         '<div class="small muted" style="margin:4px 0">医薬品ですがセルフメディケーション税制の対象品目リストに無いものです（控除の合計には含めません）。</div>' +
@@ -540,6 +558,7 @@
               '<div id="tax"></div>' +
               '<div class="small muted" style="margin-top:6px">「注文を確認」は別タブで開くのでこの画面は消えません。価格が空欄の薬は注文を開いて手入力してください。</div>') +
           outSection +
+          diagSection +
           '<div class="btns">' +
             '<button class="btn rescan" id="rescan">再スキャン</button>' +
             '<a class="btn kofi" href="https://ko-fi.com/rbelg" target="_blank" rel="noopener">☕ 応援</a>' +
