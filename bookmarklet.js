@@ -395,8 +395,8 @@
 
   var CACHE_KEY = "smtc_cache_v1";
   var CACHE_MAX_MIN = 120;
-  function saveCache(ok, out) {
-    try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), ok: ok, out: out })); } catch (e) {}
+  function saveCache(ok, out, diag) {
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), ok: ok, out: out, diag: diag })); } catch (e) {}
   }
   function loadCache() {
     try {
@@ -423,7 +423,7 @@
     }).then(function (acc) {
       prog.done();
       var a = accToArrays(acc);
-      saveCache(a.ok, a.out);
+      saveCache(a.ok, a.out, acc.diag);
       renderOverlay(a.ok, a.out, { onRescan: function () { startScan(MED); }, diag: acc.diag });
     }).catch(function (e) {
       prog.done();
@@ -436,7 +436,7 @@
     // 直近の結果があれば、まず即表示（ページ移動後に押し直すと再スキャン無しで復元）
     var cache = loadCache();
     if (cache) {
-      renderOverlay(cache.ok, cache.out, { cachedMin: cache.minAgo, onRescan: function () { startScan(MED); } });
+      renderOverlay(cache.ok, cache.out, { cachedMin: cache.minAgo, onRescan: function () { startScan(MED); }, diag: cache.diag });
     } else {
       startScan(MED);
     }
@@ -491,11 +491,11 @@
     }).join("");
     var dg = opts.diag;
     var diagSection = dg
-      ? '<details class="outbox"><summary>診断情報（価格が取れない時に共有してください）</summary>' +
-        '<div class="orow">注文番号 ' + dg.ids + ' 件 / 詳細ページ取得 ' + dg.page + ' / 注文番号一致 ' + dg.sig +
-        ' / ¥表記 ' + dg.yen + ' 個 / 商品名一致 ' + dg.hit + '</div>' +
-        '<div class="orow">URL: ' + esc(dg.url || "(取得できず)") + '</div></details>'
-      : "";
+      ? '<div class="diag"><b>診断情報</b>（価格が取れない時はこの行を共有してください）<br>' +
+        '注文番号 ' + dg.ids + ' 件 / 詳細ページ取得 ' + dg.page + ' / 注文番号一致 ' + dg.sig +
+        ' / ¥表記 ' + dg.yen + ' 個 / 商品名一致 ' + dg.hit + '<br>' +
+        'URL: ' + esc(dg.url || "(取得できず)") + '</div>'
+      : '<div class="diag">診断情報なし（「再スキャン」を押すと表示されます）</div>';
 
     var outSection = outHits.length
       ? '<details class="outbox"><summary>対象外の医薬品（参考）' + outHits.length + '件</summary>' +
@@ -535,6 +535,7 @@
       '.totalline{margin:12px 0 2px;font-size:17px;text-align:right}.totalline b{font-size:21px}' +
       '.muted{color:#66727f}.small{font-size:13px}' +
       '.outbox{margin-top:12px}.outbox summary{cursor:pointer;font-weight:600;color:#66727f;font-size:14px}' +
+      '.diag{margin-top:12px;background:#f1f5f9;border:1px solid #d8e0e8;border-radius:8px;padding:8px 10px;font-size:13px;color:#44515e;word-break:break-all}' +
       '.orow{padding:6px 0;border-bottom:1px solid #f2f5f7;color:#66727f;font-size:14px;word-break:break-all}' +
       'table{width:100%;border-collapse:collapse;margin-top:6px}td{padding:5px 0;border-bottom:1px solid #eef2f5}.r{text-align:right}' +
       '.btns{display:flex;gap:8px;margin-top:12px}' +
