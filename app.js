@@ -123,42 +123,79 @@
     // 注文詳細ページを候補URL順に試し、注文が実際に表示されたページを返す
     function loadDetail(oid) {
       var urls = orderDetailUrls(oid);
-      var ui = 0;
+      var ui = 0, firstRendered = null;
       function tryNext() {
-        if (ui >= urls.length) return Promise.resolve(null);
+        if (ui >= urls.length) return Promise.resolve(firstRendered);
         var url = urls[ui++];
         return loadPageViaIframe(url, 12000).then(function (p) {
-          // sig(注文番号)が出ている＝正しく注文が表示された
-          if (p && p.body && p.sig) { p.url = url; return p; }
+          if (p && p.body) {
+            p.url = url;
+            if (p.sig) return p;                       // 注文番号あり＝注文ページ（最良）
+            if (!firstRendered) firstRendered = p;      // 描画はできた（商品ページ等）→後で辿る
+          }
           return tryNext();
         }).catch(function () { return tryNext(); });
       }
       return tryNext();
     }
 
+    // 「注文内容を表示」等のリンク（商品ごとの価格が載る注文の詳細へ）
+    function findOrderContentLink(doc, baseUrl) {
+      if (!doc || !doc.querySelectorAll) return null;
+      var as = doc.querySelectorAll("a[href]");
+      for (var j = 0; j < as.length; j++) {
+        var t = (as[j].textContent || "").replace(/\s+/g, "");
+        if (/注文内容を表示|注文の詳細|注文詳細/.test(t)) {
+          try { return new URL(as[j].getAttribute("href"), baseUrl).href; } catch (e) {}
+        }
+      }
+      return null;
+    }
+    // そのページから対象薬の価格が取れたら {key:price} を返す（1件も取れなければ null）
+    function pricesFrom(body, keys) {
+      var got = null;
+      keys.forEach(function (k) {
+        var pr = priceForMedInDoc(body, k);
+        if (pr != null) { (got = got || {})[k] = pr; }
+      });
+      return got;
+    }
+    function applyPrices(keys, got, url) {
+      keys.forEach(function (k) {
+        if (got[k] != null) { acc.ok[k].price = got[k]; acc.ok[k].estimated = false; }
+        if (url) acc.ok[k].pageUrl = url;
+      });
+    }
+    function applyTotal(keys, body, url) {
+      var total = orderTotalInDoc(body);
+      keys.forEach(function (k) {
+        if (acc.ok[k].price == null && total != null) { acc.ok[k].price = total; acc.ok[k].estimated = true; }
+        if (url) acc.ok[k].pageUrl = url;
+      });
+    }
+
     function next() {
       if (i >= orders.length) return Promise.resolve(acc);
       var oid = orders[i++];
+      var keys = byOrder[oid];
       if (onProgress) onProgress(i, orders.length);
       return loadDetail(oid).then(function (p) {
-        if (p && p.body) {
-          var total = null;
-          byOrder[oid].forEach(function (k) {
-            var pr = priceForMedInDoc(p.body, k);
-            if (pr != null) {
-              acc.ok[k].price = pr;              // 商品ごとの価格が取れた（確実）
-              acc.ok[k].estimated = false;
-            } else {
-              if (total === null) total = orderTotalInDoc(p.body);
-              if (total != null) {
-                acc.ok[k].price = total;         // 取れない場合は注文合計を概算として入れる
-                acc.ok[k].estimated = true;
-              }
-            }
-          });
-          if (p.url) byOrder[oid].forEach(function (k) { acc.ok[k].pageUrl = p.url; });
-        }
-        return next();
+        if (!p || !p.body) return next();
+        var got = pricesFrom(p.body, keys);
+        if (got) { applyPrices(keys, got, p.url); return next(); }
+        // 価格が無いページ（商品ページ等）なら「注文内容を表示」をたどる
+        var link = findOrderContentLink(p.doc, p.url || location.href);
+        if (!link) { applyTotal(keys, p.body, p.url); return next(); }
+        return loadPageViaIframe(link, 12000).then(function (p2) {
+          if (p2 && p2.body) {
+            var got2 = pricesFrom(p2.body, keys);
+            if (got2) applyPrices(keys, got2, link);
+            else applyTotal(keys, p2.body, link);
+          } else {
+            applyTotal(keys, p.body, p.url);
+          }
+          return next();
+        }).catch(function () { applyTotal(keys, p.body, p.url); return next(); });
       }).catch(function () { return next(); });
     }
     return next();
