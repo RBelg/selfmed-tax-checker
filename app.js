@@ -244,7 +244,10 @@
   function orderDetailUrls(orderId) {
     var id = encodeURIComponent(orderId);
     return [
-      location.origin + "/your-orders/orders/details?orderId=" + id,
+      // 現行UIの注文詳細（実機URLで確認済み）
+      location.origin + "/your-orders/order-details?is-secure=true&orderID=" + id,
+      location.origin + "/your-orders/order-details?orderID=" + id,
+      // 旧UIのフォールバック
       location.origin + "/gp/your-account/order-details?orderID=" + id,
       location.origin + "/gp/css/order-details?orderID=" + id
     ];
