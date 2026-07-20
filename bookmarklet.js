@@ -526,14 +526,17 @@
         (o.pageUrl ? ' <a class="vf" href="' + esc(o.pageUrl) + '" target="_blank" rel="noopener">確認</a>' : '') + '</div>';
     }).join("");
     var dg = opts.diag;
-    var diagSection = dg
-      ? '<div class="diag"><b>診断情報</b>（価格が取れない時はこの行を共有してください）<br>' +
-        '注文番号 ' + dg.ids + ' 件 / 詳細ページ取得 ' + dg.page + ' / 注文番号一致 ' + dg.sig +
-        ' / ¥表記 ' + dg.yen + ' 個 / 商品名一致 ' + dg.hit + '<br>' +
-        (dg.facts ? 'ページ内: 注文番号(全) ' + dg.facts.idsAll + ' / 表示テキスト ' + dg.facts.idsVisible +
-          ' / 詳細リンク ' + dg.facts.links + '<br>' : '') +
-        'URL: ' + esc(dg.url || "(取得できず)") + '</div>'
-      : '<div class="diag">診断情報なし（「再スキャン」を押すと表示されます）</div>';
+    // ページ内の状況は「今いるページ」を毎回その場で調べる（キャッシュ表示でも必ず出す）
+    var nowFacts = pageFacts();
+    var diagSection =
+      '<div class="diag"><b>診断情報</b>（価格が取れない時はこの2行を共有してください）<br>' +
+      'ページ内: 注文番号(全) ' + nowFacts.idsAll + ' / 表示テキスト ' + nowFacts.idsVisible +
+      ' / 詳細リンク ' + nowFacts.links + '<br>' +
+      (dg
+        ? '取得: 注文番号 ' + dg.ids + ' 件 / 詳細ページ ' + dg.page + ' / 番号一致 ' + dg.sig +
+          ' / ¥表記 ' + dg.yen + ' / 商品名一致 ' + dg.hit + '<br>URL: ' + esc(dg.url || "(取得できず)")
+        : '取得: （前回結果の表示中。「再スキャン」で計測されます）') +
+      '</div>';
 
     var outSection = outHits.length
       ? '<details class="outbox"><summary>対象外の医薬品（参考）' + outHits.length + '件</summary>' +
