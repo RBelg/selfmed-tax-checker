@@ -468,9 +468,16 @@
     });
   }
 
+  // 価格が1件も入っていないキャッシュは役に立たないので使わない（＝自動で再スキャン）
+  function cacheUseful(c) {
+    if (!c || !c.ok || !c.ok.length) return false;
+    return c.ok.some(function (h) { return h.price != null && h.price !== ""; });
+  }
+
   function run(MED) {
     // 直近の結果があれば、まず即表示（ページ移動後に押し直すと再スキャン無しで復元）
     var cache = loadCache();
+    if (!cacheUseful(cache)) cache = null;
     if (cache) {
       renderOverlay(cache.ok, cache.out, { cachedMin: cache.minAgo, onRescan: function () { startScan(MED); }, diag: cache.diag });
     } else {
