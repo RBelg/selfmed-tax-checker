@@ -51,7 +51,18 @@
     return { t: out, s: st };
   }
 
-  // 正規化済みテキスト -> 対象品目（最長一致）。語頭から始まる一致のみ有効。
+  // 一致が「語頭から始まり、語末で終わる（または直後が数字＝容量表記）」かを判定する。
+  // 語頭のみだと「アイリス」が「アイリスオーヤマ」に一致してしまうため語末条件が必要。
+  // 一方「ロキソニンSプレミアム24錠」のように直後が数量のケースは許容する。
+  function validMatch(nt, starts, pos, len) {
+    if (starts && !starts[pos]) return false;
+    var end = pos + len;                       // 一致直後の位置
+    if (end >= nt.length) return true;         // 文字列の終わり＝語末
+    if (starts && starts[end]) return true;    // 次が語頭＝ここが語末
+    return /[0-9]/.test(nt.charAt(end));       // 直後が数字（例: 24錠, 60枚）
+  }
+
+  // 正規化済みテキスト -> 対象品目（最長一致）
   function matchOne(no, MED) {
     if (typeof no === "string") no = { t: no, s: null };
     var nt = no.t, starts = no.s;
@@ -61,7 +72,7 @@
       if (k.length < MIN_MATCH_LEN) { if (k === nt && (!best || k.length > best.k.length)) best = MED[i]; continue; }
       var pos = nt.indexOf(k);
       while (pos !== -1) {
-        if (!starts || starts[pos]) { if (!best || k.length > best.k.length) best = MED[i]; break; }
+        if (validMatch(nt, starts, pos, k.length)) { if (!best || k.length > best.k.length) best = MED[i]; break; }
         pos = nt.indexOf(k, pos + 1);
       }
     }
@@ -132,7 +143,10 @@
       if (t.length < 4 || t.length > 200) continue;
       var no = normStarts(t);
       var nt = no.t, ok = false, pos = nt.indexOf(medK);
-      while (pos !== -1) { if (no.s[pos]) { ok = true; break; } pos = nt.indexOf(medK, pos + 1); }
+      while (pos !== -1) {
+        if (validMatch(nt, no.s, pos, medK.length)) { ok = true; break; }
+        pos = nt.indexOf(medK, pos + 1);
+      }
       if (ok) {
         for (var j = i; j < Math.min(nodes.length, i + 25); j++) {
           var p = priceInText(nodes[j]);
@@ -617,7 +631,7 @@
         '<div class="mid">' +
           '<div class="nm">' + esc(h.name) + '</div>' +
           '<div class="ig">' + esc(h.ingredient || "") +
-            (h.points ? ' · <span class="pt">ポイント -¥' + h.points + ' 控除済</span>' : '') +
+            (h.points ? ' · <span class="pt" title="注文で使ったポイントを、商品価格の比率で按分した額です">ポイント -¥' + h.points + ' 控除済</span>' : '') +
             (h.estimated ? ' · <span class="est">注文合計からの概算</span>' : '') +
             (h.pageUrl ? ' · <a class="vf" href="' + esc(h.pageUrl) + '" target="_blank" rel="noopener">注文を確認</a>' : '') +
           '</div>' +
