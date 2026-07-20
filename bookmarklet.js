@@ -213,9 +213,28 @@
       });
       return got;
     }
+    // 実際に使用されたポイント額を求める。
+    // 「Amazonポイント」の文字は未使用でも支払い方法欄に出るため、
+    // 金額がポイントに明確に紐づく場合（同一テキスト内の金額／直後の負号付き金額）のみ採用する。
+    var NEG_AMOUNT = /[-−ー▲]\s*[¥￥]\s?([\d,]{2,})/;
+    function pointsUsed(nodes) {
+      for (var i = 0; i < nodes.length; i++) {
+        var t = nodes[i];
+        if (!/ポイント/.test(t)) continue;
+        var mneg = t.match(NEG_AMOUNT);                       // 例）Amazonポイント −¥222
+        if (mneg) { var v = parseInt(mneg[1].replace(/,/g, ""), 10); if (v > 0) return v; }
+        var same = priceInText(t);                            // 例）¥222 (ポイント相当額) 適用済み
+        if (same != null) return same;
+        for (var j = i + 1; j < Math.min(nodes.length, i + 3); j++) {
+          var m2 = nodes[j].match(NEG_AMOUNT);                // 直後が負号付き金額のときのみ
+          if (m2) { var v2 = parseInt(m2[1].replace(/,/g, ""), 10); if (v2 > 0) return v2; }
+        }
+      }
+      return null;
+    }
     // ポイント使用分は「値引き」扱いで控除対象外。商品価格の割合に応じて按分して差し引く。
     function pointAdjust(nodes, price) {
-      var pt = labelAmount(nodes, /Amazonポイント|Ａｍａｚｏｎポイント/);
+      var pt = pointsUsed(nodes);
       if (pt == null || !price) return { price: price, points: 0 };
       var sub = labelAmount(nodes, /商品の小計|小計/) || price;
       var share = sub > 0 ? Math.round(pt * (price / sub)) : 0;
