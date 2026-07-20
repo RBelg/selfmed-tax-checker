@@ -59,14 +59,33 @@
   function findPriceNear(node) {
     var el = node && node.parentElement;
     var hops = 0;
-    while (el && hops < 10) {
+    while (el && hops < 12) {
       var txt = el.textContent || "";
-      if (txt.length > 1500) return null;
+      if (txt.length > 3000) return null;
       var p = priceInText(txt);
       if (p != null) return p;
       el = el.parentElement; hops++;
     }
     return null;
+  }
+
+  // 注文詳細ページから「注文合計」等の金額を拾う（商品ごとの価格が取れない時の概算用）
+  function orderTotalInDoc(root) {
+    if (!root) return null;
+    var walker = (root.ownerDocument || document).createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+    var n, fallback = null;
+    while ((n = walker.nextNode())) {
+      var t = (n.nodeValue || "").replace(/\s+/g, " ").trim();
+      if (!t || t.length > 60) continue;
+      if (/注文合計|ご請求額|合計/.test(t)) {
+        var p = priceInText(t) || findPriceNear(n);
+        if (p != null) {
+          if (/注文合計|ご請求額/.test(t)) return p;   // より確実な表記を優先
+          if (fallback == null) fallback = p;
+        }
+      }
+    }
+    return fallback;
   }
 
   // ドキュメント内で、指定した品目(正規化キー)の商品名を探し、その近傍価格を返す
@@ -100,16 +119,44 @@
     });
     var orders = Object.keys(byOrder).slice(0, MAX_ORDERS);
     var i = 0;
+
+    // 注文詳細ページを候補URL順に試し、注文が実際に表示されたページを返す
+    function loadDetail(oid) {
+      var urls = orderDetailUrls(oid);
+      var ui = 0;
+      function tryNext() {
+        if (ui >= urls.length) return Promise.resolve(null);
+        var url = urls[ui++];
+        return loadPageViaIframe(url, 12000).then(function (p) {
+          // sig(注文番号)が出ている＝正しく注文が表示された
+          if (p && p.body && p.sig) { p.url = url; return p; }
+          return tryNext();
+        }).catch(function () { return tryNext(); });
+      }
+      return tryNext();
+    }
+
     function next() {
       if (i >= orders.length) return Promise.resolve(acc);
       var oid = orders[i++];
       if (onProgress) onProgress(i, orders.length);
-      return loadPageViaIframe(orderDetailUrl(oid), 12000).then(function (p) {
+      return loadDetail(oid).then(function (p) {
         if (p && p.body) {
+          var total = null;
           byOrder[oid].forEach(function (k) {
             var pr = priceForMedInDoc(p.body, k);
-            if (pr != null) acc.ok[k].price = pr;   // 詳細ページの価格を正とする
+            if (pr != null) {
+              acc.ok[k].price = pr;              // 商品ごとの価格が取れた（確実）
+              acc.ok[k].estimated = false;
+            } else {
+              if (total === null) total = orderTotalInDoc(p.body);
+              if (total != null) {
+                acc.ok[k].price = total;         // 取れない場合は注文合計を概算として入れる
+                acc.ok[k].estimated = true;
+              }
+            }
           });
+          if (p.url) byOrder[oid].forEach(function (k) { acc.ok[k].pageUrl = p.url; });
         }
         return next();
       }).catch(function () { return next(); });
@@ -131,10 +178,17 @@
     }
     return null;
   }
-  // 注文番号から注文詳細ページURLを組み立てる（アンカー探索に依存しない確実な方法）
-  function orderDetailUrl(orderId) {
-    return location.origin + "/gp/css/order-details?orderID=" + encodeURIComponent(orderId);
+  // 注文番号から注文詳細ページURLを組み立てる（アンカー探索に依存しない）。
+  // AmazonはUI刷新でURL形式が変わるため複数候補を順に試す。
+  function orderDetailUrls(orderId) {
+    var id = encodeURIComponent(orderId);
+    return [
+      location.origin + "/your-orders/orders/details?orderId=" + id,
+      location.origin + "/gp/your-account/order-details?orderID=" + id,
+      location.origin + "/gp/css/order-details?orderID=" + id
+    ];
   }
+  function orderDetailUrl(orderId) { return orderDetailUrls(orderId)[0]; }
 
   // 商品名ノードから、その注文の詳細ページ（無ければ商品ページ）URLを特定する。
   // 祖先を上りながら最初に見つかった注文詳細リンクを返す＝その商品が属する注文。
@@ -349,6 +403,7 @@
         '<div class="mid">' +
           '<div class="nm">' + esc(h.name) + '</div>' +
           '<div class="ig">' + esc(h.ingredient || "") +
+            (h.estimated ? ' · <span class="est">注文合計からの概算</span>' : '') +
             (h.pageUrl ? ' · <a class="vf" href="' + esc(h.pageUrl) + '" target="_blank" rel="noopener">注文を確認</a>' : '') +
           '</div>' +
         '</div>' +
@@ -393,7 +448,7 @@
       '.big{font-size:20px;font-weight:800}.yes .big{color:#1f8a70}.no .big{color:#b45309}' +
       '.row{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid #eef2f5}' +
       '.mid{flex:1;min-width:0}.nm{font-weight:600;word-break:break-all}.ig{color:#66727f;font-size:13px}' +
-      '.vf{color:#1f8a70}' +
+      '.vf{color:#1f8a70}.est{color:#b45309}' +
       '.pr{width:92px;padding:7px 8px;border:1px solid #cfd8e0;border-radius:6px;text-align:right;font-size:16px;flex:none}' +
       '.totalline{margin:12px 0 2px;font-size:17px;text-align:right}.totalline b{font-size:21px}' +
       '.muted{color:#66727f}.small{font-size:13px}' +
