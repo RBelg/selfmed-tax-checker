@@ -441,8 +441,11 @@
       var no = normStarts(t);
       var nt = no.t;
       if (!nt) continue;
-      var best = matchOne(no, MED);
-      if (best || (DRUG_RE.test(t) && t.length <= 120)) {
+      // Amazonの医薬品は商品名に必ずリスク分類（【第N類医薬品】等）が付く。
+      // これを必須条件にすることで、医薬品以外の商品に名称がたまたま一致する誤判定を防ぐ。
+      var isDrugText = DRUG_RE.test(t);
+      var best = isDrugText ? matchOne(no, MED) : null;
+      if (best || (isDrugText && t.length <= 120)) {
         var oid = findOrderIdNear(n);
         var link = oid ? orderDetailUrl(oid) : (findOrderLink(n, pageUrl) || pageUrl);
         if (best) {
