@@ -237,14 +237,33 @@
 
   // 注文番号（1件）。商品ノードから、その商品が属する注文の注文番号を特定する。
   var ORDER_ID_ONE = /\d{3}-\d{7}-\d{7}/;
+  // 商品ノードから祖先を上り、「注文番号がちょうど1件だけ含まれる要素」＝その注文のカード と判断する。
+  // 文字数で打ち切ると新UIの大きなカードで注文番号に到達できないため、件数で境界を判定する。
   function findOrderIdNear(node) {
     var el = node && node.parentElement;
     var hops = 0;
-    while (el && hops < 12) {
+    while (el && hops < 25) {
       var txt = el.textContent || "";
-      if (txt.length > 4000) return null;   // 上りすぎ（複数注文を含む）ので打ち切り
-      var m = txt.match(ORDER_ID_ONE);
-      if (m) return m[0];                   // 最初に見つかった＝その商品の注文
+      var ms = txt.match(ORDER_NUM);
+      if (ms) {
+        var uniq = Object.create(null);
+        ms.forEach(function (x) { uniq[x] = 1; });
+        var ks = Object.keys(uniq);
+        if (ks.length === 1) return ks[0];   // この要素＝単一注文のカード
+        break;                               // 複数注文を含む＝上りすぎ
+      }
+      el = el.parentElement; hops++;
+    }
+    // フォールバック: 祖先にある注文詳細リンクの orderID= から拾う
+    el = node && node.parentElement; hops = 0;
+    while (el && hops < 25) {
+      if (el.querySelector) {
+        var a = el.querySelector('a[href*="orderID="],a[href*="orderId="]');
+        if (a) {
+          var m2 = (a.getAttribute("href") || "").match(/order(?:ID|Id)=([\d-]{10,})/);
+          if (m2) return decodeURIComponent(m2[1]);
+        }
+      }
       el = el.parentElement; hops++;
     }
     return null;
