@@ -434,14 +434,31 @@
     };
   }
 
+  // 現在の注文履歴ページで「何が取得可能か」を調べる（原因切り分け用）
+  function pageFacts() {
+    var b = document.body;
+    var f = { idsAll: 0, idsVisible: 0, links: 0 };
+    try {
+      var tc = (b.textContent || "").match(ORDER_NUM) || [];
+      var uniq = Object.create(null); tc.forEach(function (x) { uniq[x] = 1; });
+      f.idsAll = Object.keys(uniq).length;
+      var it = (b.innerText || "").match(ORDER_NUM) || [];
+      f.idsVisible = it.length;
+      f.links = b.querySelectorAll('a[href*="orderID="],a[href*="orderId="],a[href*="order-details"]').length;
+    } catch (e) {}
+    return f;
+  }
+
   function startScan(MED) {
     var prog = showProgress();
+    var facts = pageFacts();
     gatherAllPages(MED, function (p) { prog.update(p); }).then(function (acc) {
       // 第2パス: 一覧に価格が無い薬は注文詳細ページから購入価格を取得
       return enrichPrices(acc, function (i, n) { prog.update("購入価格を確認中… (" + i + "/" + n + ")"); });
     }).then(function (acc) {
       prog.done();
       var a = accToArrays(acc);
+      if (acc.diag) acc.diag.facts = facts;
       saveCache(a.ok, a.out, acc.diag);
       renderOverlay(a.ok, a.out, { onRescan: function () { startScan(MED); }, diag: acc.diag });
     }).catch(function (e) {
@@ -513,6 +530,8 @@
       ? '<div class="diag"><b>診断情報</b>（価格が取れない時はこの行を共有してください）<br>' +
         '注文番号 ' + dg.ids + ' 件 / 詳細ページ取得 ' + dg.page + ' / 注文番号一致 ' + dg.sig +
         ' / ¥表記 ' + dg.yen + ' 個 / 商品名一致 ' + dg.hit + '<br>' +
+        (dg.facts ? 'ページ内: 注文番号(全) ' + dg.facts.idsAll + ' / 表示テキスト ' + dg.facts.idsVisible +
+          ' / 詳細リンク ' + dg.facts.links + '<br>' : '') +
         'URL: ' + esc(dg.url || "(取得できず)") + '</div>'
       : '<div class="diag">診断情報なし（「再スキャン」を押すと表示されます）</div>';
 
