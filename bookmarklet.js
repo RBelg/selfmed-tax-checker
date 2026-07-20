@@ -86,28 +86,54 @@
     return null;
   }
 
-  // 価格が取れなかった対象薬について、注文詳細ページを開いて購入価格を取得する第2パス。
-  // 商品ページ(/dp/)へのフォールバックURLは「現在価格」で購入価格と違うため対象外。
+  // 対象薬の購入価格を「注文詳細ページ」から取得する第2パス。
+  // 一覧ページには商品ごとの価格が無く、あっても注文合計を拾ってしまうため、
+  // 注文詳細の価格を正として上書きする。同一注文は1回だけ開く。
   function enrichPrices(acc, onProgress) {
-    var MAX_DETAIL = 15;
-    var keys = Object.keys(acc.ok).filter(function (k) {
+    var MAX_ORDERS = 30;
+    // 注文番号ごとに対象薬をまとめる（同じ注文を何度も開かない）
+    var byOrder = Object.create(null);
+    Object.keys(acc.ok).forEach(function (k) {
       var h = acc.ok[k];
-      return h.price == null && /order-details|orderID|orderId|\/orders\/details/i.test(h.pageUrl || "");
-    }).slice(0, MAX_DETAIL);
+      if (!h.orderId) return;
+      (byOrder[h.orderId] = byOrder[h.orderId] || []).push(k);
+    });
+    var orders = Object.keys(byOrder).slice(0, MAX_ORDERS);
     var i = 0;
     function next() {
-      if (i >= keys.length) return Promise.resolve(acc);
-      var k = keys[i++];
-      if (onProgress) onProgress(i, keys.length);
-      return loadPageViaIframe(acc.ok[k].pageUrl, 9000).then(function (p) {
+      if (i >= orders.length) return Promise.resolve(acc);
+      var oid = orders[i++];
+      if (onProgress) onProgress(i, orders.length);
+      return loadPageViaIframe(orderDetailUrl(oid), 12000).then(function (p) {
         if (p && p.body) {
-          var pr = priceForMedInDoc(p.body, k);
-          if (pr != null) acc.ok[k].price = pr;
+          byOrder[oid].forEach(function (k) {
+            var pr = priceForMedInDoc(p.body, k);
+            if (pr != null) acc.ok[k].price = pr;   // 詳細ページの価格を正とする
+          });
         }
         return next();
-      });
+      }).catch(function () { return next(); });
     }
     return next();
+  }
+
+  // 注文番号（1件）。商品ノードから、その商品が属する注文の注文番号を特定する。
+  var ORDER_ID_ONE = /\d{3}-\d{7}-\d{7}/;
+  function findOrderIdNear(node) {
+    var el = node && node.parentElement;
+    var hops = 0;
+    while (el && hops < 12) {
+      var txt = el.textContent || "";
+      if (txt.length > 4000) return null;   // 上りすぎ（複数注文を含む）ので打ち切り
+      var m = txt.match(ORDER_ID_ONE);
+      if (m) return m[0];                   // 最初に見つかった＝その商品の注文
+      el = el.parentElement; hops++;
+    }
+    return null;
+  }
+  // 注文番号から注文詳細ページURLを組み立てる（アンカー探索に依存しない確実な方法）
+  function orderDetailUrl(orderId) {
+    return location.origin + "/gp/css/order-details?orderID=" + encodeURIComponent(orderId);
   }
 
   // 商品名ノードから、その注文の詳細ページ（無ければ商品ページ）URLを特定する。
@@ -148,10 +174,14 @@
       var nt = norm(t);
       if (!nt) continue;
       var best = matchOne(nt, MED);
-      if (best) {
-        if (!acc.ok[best.k]) acc.ok[best.k] = { name: best.n, ingredient: best.g, price: findPriceNear(n), pageUrl: findOrderLink(n, pageUrl) || pageUrl };
-      } else if (DRUG_RE.test(t) && t.length <= 120) {
-        if (!acc.out[nt]) acc.out[nt] = { name: t, price: findPriceNear(n), pageUrl: findOrderLink(n, pageUrl) || pageUrl };
+      if (best || (DRUG_RE.test(t) && t.length <= 120)) {
+        var oid = findOrderIdNear(n);
+        var link = oid ? orderDetailUrl(oid) : (findOrderLink(n, pageUrl) || pageUrl);
+        if (best) {
+          if (!acc.ok[best.k]) acc.ok[best.k] = { name: best.n, ingredient: best.g, price: findPriceNear(n), pageUrl: link, orderId: oid };
+        } else if (!acc.out[nt]) {
+          acc.out[nt] = { name: t, price: findPriceNear(n), pageUrl: link, orderId: oid };
+        }
       }
     }
     return acc;
