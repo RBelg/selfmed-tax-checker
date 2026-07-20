@@ -263,24 +263,27 @@
       var v = parseInt(m[1].replace(/,/g, ""), 10);
       return (v >= 1 && v <= 1000000) ? v : null;
     }
-    function pointsUsed(nodes) {
+    // 注文概要のマイナス金額（ポイント・割引・クーポン等）を合計する。
+    // ギフト券/ギフトカードは「支払手段」であり値引きではないので除外する（控除対象に含める）。
+    // マイナス表記のみを見るため、支払い方法欄のプラス表記との二重計上が起きない。
+    function deductionsUsed(nodes) {
+      var total = 0;
       for (var i = 0; i < nodes.length; i++) {
         var t = nodes[i];
-        if (!/ポイント/.test(t)) continue;
-        var v = ptVal(t.match(PT_NEG));                       // 例）Amazonポイント −¥9
-        if (v != null) return v;
-        v = ptVal(t.match(PT_AMT));                           // 例）¥222 (ポイント相当額) 適用済み
-        if (v != null) return v;
-        for (var j = i + 1; j < Math.min(nodes.length, i + 3); j++) {
-          var v2 = ptVal(nodes[j].match(PT_NEG));             // 直後が負号付き金額のときのみ
-          if (v2 != null) return v2;
-        }
+        var v = ptVal(t.match(PT_NEG));
+        if (v == null) continue;
+        // ラベルは同じノードの残り、無ければ直前のノード
+        var lab = t.replace(PT_NEG, "").trim();
+        if (!lab) lab = nodes[i - 1] || "";
+        if (/ギフト/.test(lab)) continue;                     // ギフト券は支払い＝控除しない
+        if (!/ポイント|割引|クーポン|値引|プロモーション|キャンペーン/.test(lab)) continue;
+        total += v;
       }
-      return null;
+      return total > 0 ? total : null;
     }
     // ポイント使用分は「値引き」扱いで控除対象外。商品価格の割合に応じて按分して差し引く。
     function pointAdjust(nodes, price) {
-      var pt = pointsUsed(nodes);
+      var pt = deductionsUsed(nodes);
       if (pt == null || !price) return { price: price, points: 0 };
       var sub = labelAmount(nodes, /商品の小計|小計/) || price;
       var share = sub > 0 ? Math.round(pt * (price / sub)) : 0;
@@ -443,7 +446,7 @@
         var oid = findOrderIdNear(n);
         var link = oid ? orderDetailUrl(oid) : (findOrderLink(n, pageUrl) || pageUrl);
         if (best) {
-          if (!acc.ok[best.k]) acc.ok[best.k] = { name: best.n, ingredient: best.g, price: findPriceNear(n), pageUrl: link, orderId: oid };
+          if (!acc.ok[best.k]) acc.ok[best.k] = { name: best.n, ingredient: best.g, price: findPriceNear(n), pageUrl: link, orderId: oid, raw: t };
         } else if (!acc.out[nt]) {
           acc.out[nt] = { name: t, price: findPriceNear(n), pageUrl: link, orderId: oid };
         }
@@ -638,10 +641,11 @@
         '<div class="mid">' +
           '<div class="nm">' + esc(h.name) + '</div>' +
           '<div class="ig">' + esc(h.ingredient || "") +
-            (h.points ? ' · <span class="pt" title="注文で使ったポイントを、商品価格の比率で按分した額です">ポイント -¥' + h.points + ' 控除済</span>' : '') +
+            (h.points ? ' · <span class="pt" title="注文のポイント・割引を、商品価格の比率で按分した額です">ポイント/割引 -¥' + h.points + ' 控除済</span>' : '') +
             (h.estimated ? ' · <span class="est">注文合計からの概算</span>' : '') +
             (h.pageUrl ? ' · <a class="vf" href="' + esc(h.pageUrl) + '" target="_blank" rel="noopener">注文を確認</a>' : '') +
           '</div>' +
+          (h.raw ? '<div class="src">検出元: ' + esc(String(h.raw).slice(0, 70)) + '</div>' : '') +
         '</div>' +
         '<input class="pr" type="number" min="0" step="1" data-i="' + i + '" value="' + (h.price != null ? h.price : "") + '" placeholder="円">' +
       '</div>';
@@ -698,6 +702,7 @@
       '.row{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid #eef2f5}' +
       '.mid{flex:1;min-width:0}.nm{font-weight:600;word-break:break-all}.ig{color:#66727f;font-size:13px}' +
       '.vf{color:#1f8a70}.est{color:#b45309}.pt{color:#7a5cc4}' +
+      '.src{color:#8b96a3;font-size:12px;margin-top:2px;word-break:break-all}' +
       '.pr{width:92px;padding:7px 8px;border:1px solid #cfd8e0;border-radius:6px;text-align:right;font-size:16px;flex:none}' +
       '.totalline{margin:12px 0 2px;font-size:17px;text-align:right}.totalline b{font-size:21px}' +
       '.muted{color:#66727f}.small{font-size:13px}' +
