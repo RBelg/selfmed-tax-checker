@@ -27,6 +27,8 @@
   // --- 正規化（build_medicines.py / index.html と同一ルール） ---
   var BR = /[【〔\[(（][^】〕\])）]*[】〕\])）]/g;
   var SY = /[\s　・,，.。/／\\\-－—–~〜=＝!！?？"'’＇`*＊#＃&＆+＋:：;；]/g;
+  // 単文字判定用（グローバルだとlastIndexが進んで誤判定するため非グローバル版）
+  var SY1 = /[\s　・,，.。/／\\\-－—–~〜=＝!！?？"'’＇`*＊#＃&＆+＋:：;；]/;
   function norm(s) {
     if (!s) return "";
     return String(s).normalize("NFKC").replace(BR, "").toLowerCase().replace(SY, "");
@@ -34,13 +36,34 @@
 
   function toast(msg) { alert(msg); }
 
-  // 正規化済みテキスト -> 対象品目（最長一致）。なければ null
-  function matchOne(nt, MED) {
+  // 正規化しつつ「各文字が語頭かどうか」を記録する。
+  // 空白や記号で区切られた位置を語頭とみなし、語の途中から始まる偶然の一致を防ぐ。
+  // 例）「ホース ワンタッチ」→「ホースワンタッチ」に含まれる「スワンタッチ」は語頭でないので不一致。
+  function normStarts(s) {
+    if (!s) return { t: "", s: [] };
+    var x = String(s).normalize("NFKC").replace(BR, "").toLowerCase();
+    var out = "", st = [], atStart = true;
+    for (var i = 0; i < x.length; i++) {
+      var ch = x.charAt(i);
+      if (SY1.test(ch)) { atStart = true; continue; }
+      out += ch; st.push(atStart); atStart = false;
+    }
+    return { t: out, s: st };
+  }
+
+  // 正規化済みテキスト -> 対象品目（最長一致）。語頭から始まる一致のみ有効。
+  function matchOne(no, MED) {
+    if (typeof no === "string") no = { t: no, s: null };
+    var nt = no.t, starts = no.s;
     var best = null;
     for (var i = 0; i < MED.length; i++) {
       var k = MED[i].k;
       if (k.length < MIN_MATCH_LEN) { if (k === nt && (!best || k.length > best.k.length)) best = MED[i]; continue; }
-      if (nt.indexOf(k) !== -1 && (!best || k.length > best.k.length)) best = MED[i];
+      var pos = nt.indexOf(k);
+      while (pos !== -1) {
+        if (!starts || starts[pos]) { if (!best || k.length > best.k.length) best = MED[i]; break; }
+        pos = nt.indexOf(k, pos + 1);
+      }
     }
     return best;
   }
@@ -107,8 +130,10 @@
     for (var i = 0; i < nodes.length; i++) {
       var t = nodes[i];
       if (t.length < 4 || t.length > 200) continue;
-      var nt = norm(t);
-      if (nt && nt.indexOf(medK) !== -1) {
+      var no = normStarts(t);
+      var nt = no.t, ok = false, pos = nt.indexOf(medK);
+      while (pos !== -1) { if (no.s[pos]) { ok = true; break; } pos = nt.indexOf(medK, pos + 1); }
+      if (ok) {
         for (var j = i; j < Math.min(nodes.length, i + 25); j++) {
           var p = priceInText(nodes[j]);
           if (p != null) return p;
@@ -389,9 +414,10 @@
       var t = (n.nodeValue || "").replace(/\s+/g, " ").trim();
       if (t.length < 6 || t.length > 200 || /^[\d¥,，.\s]+$/.test(t) || seen[t]) continue;
       seen[t] = 1;
-      var nt = norm(t);
+      var no = normStarts(t);
+      var nt = no.t;
       if (!nt) continue;
-      var best = matchOne(nt, MED);
+      var best = matchOne(no, MED);
       if (best || (DRUG_RE.test(t) && t.length <= 120)) {
         var oid = findOrderIdNear(n);
         var link = oid ? orderDetailUrl(oid) : (findOrderLink(n, pageUrl) || pageUrl);
