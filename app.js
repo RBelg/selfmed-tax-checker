@@ -88,18 +88,44 @@
     return fallback;
   }
 
-  // ドキュメント内で、指定した品目(正規化キー)の商品名を探し、その近傍価格を返す
-  function priceForMedInDoc(root, medK) {
-    if (!root) return null;
+  // ページのテキストノードを出現順の配列にする（DOM構造に依存せず「並び」で読む）
+  function textNodesOf(root) {
+    var out = [];
+    if (!root) return out;
     var walker = (root.ownerDocument || document).createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
     var n;
     while ((n = walker.nextNode())) {
       var t = (n.nodeValue || "").replace(/\s+/g, " ").trim();
-      if (t.length < 6 || t.length > 200) continue;
+      if (t) out.push(t);
+    }
+    return out;
+  }
+
+  // 商品名を見つけ、その「直後に並ぶ」金額を拾う。
+  // 注文詳細は 商品名 → 販売: → 返品期間: → ¥価格 の順に並ぶため、祖先探索より確実。
+  function priceForMedInDoc(nodes, medK) {
+    for (var i = 0; i < nodes.length; i++) {
+      var t = nodes[i];
+      if (t.length < 4 || t.length > 200) continue;
       var nt = norm(t);
       if (nt && nt.indexOf(medK) !== -1) {
-        var p = findPriceNear(n);
-        if (p != null) return p;
+        for (var j = i; j < Math.min(nodes.length, i + 25); j++) {
+          var p = priceInText(nodes[j]);
+          if (p != null) return p;
+        }
+      }
+    }
+    return null;
+  }
+
+  // 「商品の小計」「Amazonポイント」などのラベル直後にある金額を拾う
+  function labelAmount(nodes, labelRe) {
+    for (var i = 0; i < nodes.length; i++) {
+      if (labelRe.test(nodes[i])) {
+        for (var j = i; j < Math.min(nodes.length, i + 6); j++) {
+          var p = priceInText(nodes[j]);
+          if (p != null) return p;
+        }
       }
     }
     return null;
@@ -179,26 +205,50 @@
       return null;
     }
     // そのページから対象薬の価格が取れたら {key:price} を返す（1件も取れなければ null）
-    function pricesFrom(body, keys) {
+    function pricesFrom(nodes, keys) {
       var got = null;
       keys.forEach(function (k) {
-        var pr = priceForMedInDoc(body, k);
+        var pr = priceForMedInDoc(nodes, k);
         if (pr != null) { (got = got || {})[k] = pr; }
       });
       return got;
     }
-    function applyPrices(keys, got, url) {
+    // ポイント使用分は「値引き」扱いで控除対象外。商品価格の割合に応じて按分して差し引く。
+    function pointAdjust(nodes, price) {
+      var pt = labelAmount(nodes, /Amazonポイント|Ａｍａｚｏｎポイント/);
+      if (pt == null || !price) return { price: price, points: 0 };
+      var sub = labelAmount(nodes, /商品の小計|小計/) || price;
+      var share = sub > 0 ? Math.round(pt * (price / sub)) : 0;
+      if (share <= 0) return { price: price, points: 0 };
+      if (share > price) share = price;
+      return { price: price - share, points: share };
+    }
+    function applyPrices(keys, got, nodes, url) {
       keys.forEach(function (k) {
-        if (got[k] != null) { acc.ok[k].price = got[k]; acc.ok[k].estimated = false; }
+        if (got[k] != null) {
+          var adj = pointAdjust(nodes, got[k]);
+          acc.ok[k].price = adj.price;
+          acc.ok[k].points = adj.points;
+          acc.ok[k].estimated = false;
+        }
         if (url) acc.ok[k].pageUrl = url;
       });
     }
-    function applyTotal(keys, body, url) {
-      var total = orderTotalInDoc(body);
+    function applyTotal(keys, nodes, url) {
+      var total = orderTotalInDoc2(nodes);
       keys.forEach(function (k) {
-        if (acc.ok[k].price == null && total != null) { acc.ok[k].price = total; acc.ok[k].estimated = true; }
+        if (acc.ok[k].price == null && total != null) {
+          var adj = pointAdjust(nodes, total);
+          acc.ok[k].price = adj.price;
+          acc.ok[k].points = adj.points;
+          acc.ok[k].estimated = true;
+        }
         if (url) acc.ok[k].pageUrl = url;
       });
+    }
+    // ノード配列から注文合計を拾う
+    function orderTotalInDoc2(nodes) {
+      return labelAmount(nodes, /注文合計|ご請求額/) || labelAmount(nodes, /合計/);
     }
 
     function next() {
@@ -214,22 +264,24 @@
         if (!diag.url) diag.url = (p.url || "").replace(location.origin, "").slice(0, 60);
         var ym = (p.body.textContent || "").match(/[¥￥]\s?[\d,]{2,}/g);
         if (ym) diag.yen += ym.length;
-        var got = pricesFrom(p.body, keys);
+        var nodes = textNodesOf(p.body);
+        var got = pricesFrom(nodes, keys);
         if (got) diag.hit += Object.keys(got).length;
-        if (got) { applyPrices(keys, got, p.url); return next(); }
+        if (got) { applyPrices(keys, got, nodes, p.url); return next(); }
         // 価格が無いページ（商品ページ等）なら「注文内容を表示」をたどる
         var link = findOrderContentLink(p.doc, p.url || location.href);
-        if (!link) { applyTotal(keys, p.body, p.url); return next(); }
+        if (!link) { applyTotal(keys, nodes, p.url); return next(); }
         return loadAny(link).then(function (p2) {
           if (p2 && p2.body) {
-            var got2 = pricesFrom(p2.body, keys);
-            if (got2) applyPrices(keys, got2, link);
-            else applyTotal(keys, p2.body, link);
+            var nodes2 = textNodesOf(p2.body);
+            var got2 = pricesFrom(nodes2, keys);
+            if (got2) { diag.hit += Object.keys(got2).length; applyPrices(keys, got2, nodes2, link); }
+            else applyTotal(keys, nodes2, link);
           } else {
-            applyTotal(keys, p.body, p.url);
+            applyTotal(keys, nodes, p.url);
           }
           return next();
-        }).catch(function () { applyTotal(keys, p.body, p.url); return next(); });
+        }).catch(function () { applyTotal(keys, nodes, p.url); return next(); });
       }).catch(function () { return next(); });
     }
     return next();
@@ -520,6 +572,7 @@
         '<div class="mid">' +
           '<div class="nm">' + esc(h.name) + '</div>' +
           '<div class="ig">' + esc(h.ingredient || "") +
+            (h.points ? ' · <span class="pt">ポイント -¥' + h.points + ' 控除済</span>' : '') +
             (h.estimated ? ' · <span class="est">注文合計からの概算</span>' : '') +
             (h.pageUrl ? ' · <a class="vf" href="' + esc(h.pageUrl) + '" target="_blank" rel="noopener">注文を確認</a>' : '') +
           '</div>' +
@@ -578,7 +631,7 @@
       '.big{font-size:20px;font-weight:800}.yes .big{color:#1f8a70}.no .big{color:#b45309}' +
       '.row{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid #eef2f5}' +
       '.mid{flex:1;min-width:0}.nm{font-weight:600;word-break:break-all}.ig{color:#66727f;font-size:13px}' +
-      '.vf{color:#1f8a70}.est{color:#b45309}' +
+      '.vf{color:#1f8a70}.est{color:#b45309}.pt{color:#7a5cc4}' +
       '.pr{width:92px;padding:7px 8px;border:1px solid #cfd8e0;border-radius:6px;text-align:right;font-size:16px;flex:none}' +
       '.totalline{margin:12px 0 2px;font-size:17px;text-align:right}.totalline b{font-size:21px}' +
       '.muted{color:#66727f}.small{font-size:13px}' +
@@ -605,7 +658,7 @@
               '<div class="totalline">対象薬の合計：<b id="total">¥0</b></div>' +
               '<div id="verdict"></div>' +
               '<div id="tax"></div>' +
-              '<div class="small muted" style="margin-top:6px">「注文を確認」は別タブで開くのでこの画面は消えません。価格が空欄の薬は注文を開いて手入力してください。</div>') +
+              '<div class="small muted" style="margin-top:6px">Amazonポイント使用分は「値引き」として自動で差し引いています（ギフトカード払いは控除対象に含みます）。「注文を確認」は別タブで開くのでこの画面は消えません。</div>') +
           outSection +
           diagSection +
           '<div class="btns">' +
