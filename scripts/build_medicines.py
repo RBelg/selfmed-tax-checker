@@ -36,15 +36,17 @@ except ImportError:
 SOURCES = [
     {
         "type": "switch",
-        "label": "スイッチOTC 令和8年6月公表",
+        "label": "スイッチOTC 令和8年11月1日時点",
         "url": "https://www.mhlw.go.jp/content/10800000/001705872.xlsx",
         "kind": "xlsx",
     },
     {
         "type": "non-switch",
-        "label": "非スイッチOTC 令和8年7月公表",
-        "url": "https://www.mhlw.go.jp/content/10800000/001705874.pdf",
-        "kind": "pdf",
+        "label": "非スイッチOTC 令和8年11月1日時点",
+        # 非スイッチOTC は月により xlsx が未公表の場合がある。
+        # その月は PDF 版 https://www.mhlw.go.jp/content/10800000/001705874.pdf を kind="pdf" で使う。
+        "url": "https://www.mhlw.go.jp/content/10800000/001705876.xlsx",
+        "kind": "xlsx",
     },
 ]
 
