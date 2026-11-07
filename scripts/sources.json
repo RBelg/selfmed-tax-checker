@@ -1,0 +1,14 @@
+[
+  {
+    "type": "switch",
+    "label": "スイッチOTC 令和8年11月1日時点",
+    "url": "https://www.mhlw.go.jp/content/10800000/001705872.xlsx",
+    "kind": "xlsx"
+  },
+  {
+    "type": "non-switch",
+    "label": "非スイッチOTC 令和8年11月1日時点",
+    "url": "https://www.mhlw.go.jp/content/10800000/001705876.xlsx",
+    "kind": "xlsx"
+  }
+]

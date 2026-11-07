@@ -1,0 +1,160 @@
+name: 品目データの自動更新
+
+# 厚労省の対象品目一覧を毎週確認し、変わっていたら確認用のPR（またはIssue）を作る。
+# 公開（master へのマージ）は必ず人が行う。
+
+on:
+  schedule:
+    - cron: "0 0 * * 1" # 毎週月曜 9:00 JST
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "変更がなくても確認用ブランチを作る（動作確認用）"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+env:
+  PYTHONUTF8: "1"
+  BRANCH: auto/data-update
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: 依存パッケージ
+        run: pip install -r scripts/requirements.txt
+
+      - name: 厚労省ページから最新の取得元を読み取る
+        run: python scripts/update_sources.py
+
+      - name: データを作り直す
+        run: |
+          cp data/medicines.json "$RUNNER_TEMP/old.json"
+          python scripts/build_medicines.py
+
+      - name: 前のデータと比べる
+        id: diff
+        run: |
+          set +e
+          python scripts/diff_medicines.py "$RUNNER_TEMP/old.json" data/medicines.json "$RUNNER_TEMP/summary.md"
+          code=$?
+          set -e
+          if [ "$code" = "0" ] || [ "${{ inputs.force }}" = "true" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif [ "$code" = "3" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "品目に変更なし。終了します。"
+          else
+            exit "$code"
+          fi
+
+      - name: テスト
+        if: steps.diff.outputs.changed == 'true'
+        id: test
+        run: |
+          set +e
+          python tests/test_data_integrity.py > "$RUNNER_TEMP/t1.txt" 2>&1; a=$?
+          node tests/test_matching.mjs > "$RUNNER_TEMP/t2.txt" 2>&1; b=$?
+          set -e
+          {
+            echo "### テスト"
+            echo "- データ整合性: $(tail -n 1 "$RUNNER_TEMP/t1.txt")"
+            echo "- 照合ロジック: $(tail -n 1 "$RUNNER_TEMP/t2.txt")"
+            if [ "$a" != "0" ] || [ "$b" != "0" ]; then
+              echo ""
+              echo "> ⚠️ テストに失敗があります。マージする前に確認してください。"
+              echo '```'
+              grep -h '^FAIL' "$RUNNER_TEMP/t1.txt" "$RUNNER_TEMP/t2.txt" | head -n 30
+              echo '```'
+            fi
+          } > "$RUNNER_TEMP/tests.md"
+          cat "$RUNNER_TEMP/tests.md"
+
+      - name: 確認用のブランチとPRを作る
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          label=$(python -c "import json;print(json.load(open('data/medicines.json',encoding='utf-8'))['source'])")
+          title="品目データの更新（${label}）"
+          base="${{ github.event.repository.default_branch }}"
+
+          # 確認用ブランチが同じ品目で既にあるなら、何もしない（毎週同じ通知を出さない）
+          if git fetch -q origin "$BRANCH" 2>/dev/null; then
+            git show "FETCH_HEAD:data/medicines.json" > "$RUNNER_TEMP/branch.json"
+            set +e
+            python scripts/diff_medicines.py "$RUNNER_TEMP/branch.json" data/medicines.json "$RUNNER_TEMP/x.md" > /dev/null
+            same=$?
+            set -e
+            if [ "$same" = "3" ] && [ "$FORCE" != "true" ]; then
+              echo "確認用ブランチは最新の品目と同じ。通知は出しません。"
+              exit 0
+            fi
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add data/medicines.json scripts/sources.json
+          git commit -q -m "data: 対象品目を更新（${label}）" || git commit -q --allow-empty -m "test: 自動更新の動作確認"
+          git push -q -f origin "$BRANCH"
+
+          compare="${{ github.server_url }}/${{ github.repository }}/compare/${base}...${BRANCH}?expand=1"
+          {
+            echo "厚労省の対象品目一覧が更新されたため、データを作り直しました。"
+            echo ""
+            cat "$RUNNER_TEMP/summary.md"
+            echo ""
+            cat "$RUNNER_TEMP/tests.md"
+            echo ""
+            echo "---"
+            echo "**確認のしかた**: 追加・削除された品目に不自然なもの（大量の削除など）がなければマージしてください。マージすると GitHub Pages に反映されます。"
+            if [ "$FORCE" = "true" ]; then
+              echo ""
+              echo "> これは動作確認用（force）の実行です。マージせずに閉じてください。"
+            fi
+          } > "$RUNNER_TEMP/body.md"
+
+          existing=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --title "$title" --body-file "$RUNNER_TEMP/body.md"
+            echo "既存のPR #$existing を更新しました"
+          elif gh pr create --base "$base" --head "$BRANCH" --title "$title" --body-file "$RUNNER_TEMP/body.md"; then
+            echo "PRを作成しました"
+          else
+            # リポジトリの設定で Actions からのPR作成が許可されていない場合は Issue で知らせる
+            {
+              echo "**PRを作る**: ${compare}"
+              echo ""
+              cat "$RUNNER_TEMP/body.md"
+            } > "$RUNNER_TEMP/issue.md"
+            issue=$(gh issue list --state open --search "品目データの更新 in:title" --json number --jq '.[0].number // empty')
+            if [ -n "$issue" ]; then
+              gh issue edit "$issue" --title "$title" --body-file "$RUNNER_TEMP/issue.md"
+              gh issue comment "$issue" --body "確認用ブランチを更新しました（${label}）。"
+            else
+              gh issue create --title "$title" --body-file "$RUNNER_TEMP/issue.md"
+            fi
+            echo "PRを作れなかったため、Issueで通知しました"
+          fi

@@ -27,7 +27,9 @@ Amazonで購入した市販薬（OTC医薬品）が、確定申告の**セルフ
 | `bookmarklet.js` | 抽出ロジックの**正本**。`__SITE__` / `__KEY__` を実行時に置換 |
 | `bookmarklet.min.txt` | 手動コピー用の `javascript:` 文字列（生成物） |
 | `data/medicines.json` | 対象品目リスト（生成物） |
-| `scripts/build_medicines.py` | 厚労省xlsx → `medicines.json` 生成 |
+| `scripts/build_medicines.py` | 厚労省xlsx → `medicines.json` 生成（取得元は `scripts/sources.json`） |
+| `scripts/update_sources.py` | 厚労省ページから最新の取得元を読み取り `sources.json` を更新 |
+| `scripts/diff_medicines.py` | 新旧の `medicines.json` の差分要約 |
 | `scripts/build_bookmarklet.mjs` | `bookmarklet.js` → `bookmarklet.min.txt` 生成 |
 | `scripts/requirements.txt` | Python依存（openpyxl, requests） |
 
@@ -69,18 +71,26 @@ node scripts/build_bookmarklet.mjs https://your-deployed-site/
 # -> bookmarklet.min.txt
 ```
 
-## データの月次更新運用
+## データの月次更新運用（自動）
 
-厚労省は対象品目一覧を毎月更新する。手順：
+厚労省は対象品目一覧を毎月更新する（最新月は同じURLのファイルを上書きする運用）。
+GitHub Actions の `update-data` ワークフローが**毎週月曜 9:00（日本時間）**に次を行う。
 
-1. [厚労省ページ](https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/0000124853.html) で最新版「対象品目一覧」xlsx の直リンクを確認。
-2. `scripts/build_medicines.py` の `SOURCES` の URL・ラベルを差し替え。
-3. `python scripts/build_medicines.py` を実行して `data/medicines.json` を再生成。
-4. コミット＆デプロイ。
+1. `scripts/update_sources.py` … 厚労省ページの「最新」ブロックから対象品目一覧の直リンクと時点を読み取り、`scripts/sources.json` を更新（非スイッチOTCは xlsx 優先、なければ PDF）。
+2. `scripts/build_medicines.py` … `data/medicines.json` を作り直す。
+3. `scripts/diff_medicines.py` … 前のデータと比べる。品目に変更がなければ何もしない。
+4. 変更があれば、テストを流して `auto/data-update` ブランチに push し、確認用のプルリクエストを作る（リポジトリの設定でActionsのPR作成が許可されていない場合は、比較リンク付きの Issue を作る）。
+5. **人が差分を確認してマージ** → GitHub Pages に反映。
 
-> **注意**: 非スイッチOTCは最新版が **PDFのみ** の月がある。xlsx が公開されている月のみ `SOURCES` に追加する。常に最新を反映したい場合は PDF パース（pdfplumber）の追加が必要（未実装）。
+ページの形が変わって読み取れないときは、ワークフローが失敗してメールで通知される。手動で実行するときは Actions タブの「品目データの自動更新」→ Run workflow（`force` にチェックすると変更がなくても確認用ブランチを作る。動作確認用）。
 
-将来的には GitHub Actions での定期再生成も検討。
+手元で更新するとき：
+
+```bash
+python scripts/update_sources.py
+python scripts/build_medicines.py
+python tests/test_data_integrity.py && node tests/test_matching.mjs
+```
 
 ## デプロイ
 
