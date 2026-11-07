@@ -8,7 +8,7 @@
 
 月次更新: 厚労省ページ
   https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/0000124853.html
-で最新版の xlsx URL を確認し、下記 SOURCES を差し替えてから再実行する。
+の「最新」ブロックの URL は scripts/update_sources.py が sources.json に反映する。
 
 データ送信は一切せず、生成物 medicines.json のみブラウザ側で読み込まれる。
 """
@@ -30,25 +30,13 @@ try:
 except ImportError:
     pdfplumber = None
 
-# --- 取得元（月次で URL を差し替える） -----------------------------------
-# 厚労省ページから「対象品目一覧」xlsx の直リンクを確認して更新すること。
-# 非スイッチOTC は最新版が PDF のみの月がある。xlsx が出ている月のみここに追加する。
-SOURCES = [
-    {
-        "type": "switch",
-        "label": "スイッチOTC 令和8年11月1日時点",
-        "url": "https://www.mhlw.go.jp/content/10800000/001705872.xlsx",
-        "kind": "xlsx",
-    },
-    {
-        "type": "non-switch",
-        "label": "非スイッチOTC 令和8年11月1日時点",
-        # 非スイッチOTC は月により xlsx が未公表の場合がある。
-        # その月は PDF 版 https://www.mhlw.go.jp/content/10800000/001705874.pdf を kind="pdf" で使う。
-        "url": "https://www.mhlw.go.jp/content/10800000/001705876.xlsx",
-        "kind": "xlsx",
-    },
-]
+# --- 取得元 -------------------------------------------------------------
+# URL とラベルは scripts/sources.json に置く。
+# scripts/update_sources.py が厚労省ページの「最新」ブロックから自動で書き換える
+# （GitHub Actions の update-data ワークフローが毎週実行）。
+# 非スイッチOTC の xlsx が未公表の月は kind="pdf" の PDF 版になる。
+SOURCES_PATH = Path(__file__).resolve().parent / "sources.json"
+SOURCES = json.loads(SOURCES_PATH.read_text(encoding="utf-8"))
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (selfmed-tax-checker data builder)"}
 
